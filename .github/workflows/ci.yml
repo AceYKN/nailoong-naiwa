@@ -32,6 +32,13 @@ jobs:
             printf '%s\n' "Private/local artifact is tracked:" "$matches"
             exit 1
           fi
+      - name: Reject removed training runtime chain
+        shell: bash
+        run: |
+          if matches="$(git grep -n -I -E -- 'DeepSeek|ONNX|onnxruntime|PyTorch|WinML|labeler|training' -- 'apps/**' 'tools/**' 2>/dev/null)"; then
+            printf '%s\n' "Removed training/cloud runtime chain found:" "$matches"
+            exit 1
+          fi
 
   frontend:
     runs-on: ubuntu-latest
