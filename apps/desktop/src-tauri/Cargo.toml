@@ -1,0 +1,29 @@
+[package]
+name = "nlnf-desktop"
+version = "0.1.0"
+description = "Local-first NLNF image classifier desktop shell"
+authors = ["AceYKN"]
+edition = "2021"
+
+[lib]
+name = "nlnf_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+opencv-backend = ["dep:opencv"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+png = "0.17.16"
+sha2 = "0.10.9"
+hex = "0.4.3"
+opencv = { version = "0.100.1", default-features = false, features = ["clang-runtime", "calib3d", "features2d", "imgcodecs", "imgproc"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Graphics_Imaging", "Win32_System_Com"] }

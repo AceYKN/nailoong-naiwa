@@ -1,0 +1,31 @@
+{
+  "name": "@nlnf/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420",
+    "dev:e2e": "vite --port 5314",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:opencv": "tauri dev --features opencv-backend",
+    "tauri:dev:opencv:e2e": "tauri dev --config src-tauri/tauri.e2e.conf.json --features opencv-backend",
+    "tauri:build": "tauri build",
+    "tauri:build:opencv": "tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend --bundles nsis --no-sign --ci",
+    "tauri:build:preview": "tauri build --bundles nsis --no-sign --ci"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.2"
+  }
+}

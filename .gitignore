@@ -1,0 +1,42 @@
+# JavaScript / Vite
+node_modules/
+dist/
+*.local
+.vite/
+
+# Tauri / Rust
+target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/target/
+bin/
+
+# User-local images and obsolete generated artifacts; never publish them.
+datasets/
+models/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local application state and secrets
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

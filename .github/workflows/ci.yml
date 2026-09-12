@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  repository-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject API-key-shaped literals
+        shell: bash
+        run: |
+          if matches="$(git grep -n -E -- 'sk-[A-Za-z0-9]{20,}' -- . 2>/dev/null)"; then
+            printf '%s\n' "API-key-shaped literal found:" "$matches"
+            exit 1
+          fi
+      - name: Reject machine-specific QQ paths
+        shell: bash
+        run: |
+          if matches="$(git grep -n -E -- '[A-Za-z]:[/\\\\].*(Tencent[[:space:]]+Files|nt_qq)[/\\\\]|nt_qq[/\\\\]' -- . ':(exclude).github/workflows/ci.yml' 2>/dev/null)"; then
+            printf '%s\n' "Machine-specific QQ path found:" "$matches"
+            exit 1
+          fi
+      - name: Reject private dataset and runtime artifacts
+        shell: bash
+        run: |
+          if matches="$(git ls-files | grep -E '(^|/)(datasets/work/|.*\.(db|sqlite|onnx|pt|pth|safetensors)$)')"; then
+            printf '%s\n' "Private/local artifact is tracked:" "$matches"
+            exit 1
+          fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo test --all-targets
+      # OpenCV is an opt-in native backend. The portable default gate must not
+      # silently require a machine-specific OpenCV/Clang installation.
+      - run: cargo clippy --all-targets -- -D warnings
+
+  rust-windows-storage:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo test --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+
+  desktop-windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/desktop tauri:build

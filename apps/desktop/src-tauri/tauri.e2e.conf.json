@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NLNF Classifier E2E",
+  "identifier": "com.aceykn.nlnfclassifier.e2e",
+  "build": {
+    "beforeDevCommand": "pnpm dev:e2e",
+    "devUrl": "http://127.0.0.1:5314"
+  }
+}

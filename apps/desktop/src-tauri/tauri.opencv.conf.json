@@ -1,0 +1,12 @@
+{
+  "build": {
+    "beforeBundleCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/feature_match/stage-opencv-runtime.ps1"
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": {
+      "target/release/opencv_world4130.dll": "opencv_world4130.dll"
+    }
+  }
+}
