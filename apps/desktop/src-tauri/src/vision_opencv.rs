@@ -1287,6 +1287,32 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn animated_reference_uses_the_query_sampling_policy_for_phash() {
+        let Some(path) = std::env::var_os("NLNF_SMOKE_NAILONG") else {
+            eprintln!("set NLNF_SMOKE_NAILONG to run the animated reference pHash test");
+            return;
+        };
+        let bytes = std::fs::read(path).expect("read animated reference");
+        let root = std::env::temp_dir().join(format!(
+            "nlnf-animated-reference-phash-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let manager = crate::references::ReferenceManager::new(&root);
+        let asset = manager
+            .add(ReferenceClass::Nailong, &bytes)
+            .expect("add animated reference");
+        let decoded = crate::decoder::decode_image(&bytes, crate::image_policy::MAX_SAMPLE_FRAMES)
+            .expect("decode animated reference with query policy");
+        let frame = decoded.frames.first().expect("animated reference frame");
+        let expected = crate::phash::compute_rgb(&frame.rgb, frame.width, frame.height)
+            .expect("compute animated reference pHash");
+        assert_eq!(asset.phash, format!("{expected:016x}"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn real_local_reference_smoke_uses_explicit_environment_paths() {
         let Some(nailong_path) = std::env::var_os("NLNF_SMOKE_NAILONG") else {
             eprintln!(

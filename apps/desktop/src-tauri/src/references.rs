@@ -85,7 +85,11 @@ impl ReferenceManager {
         }
 
         let inspection = image_policy::inspect_image(bytes).map_err(|error| error.to_string())?;
-        let decoded = decoder::decode_image(bytes, 1)?;
+        // Use the same endpoint-inclusive sampling policy as query images.
+        // WIC can expose a different composed GIF frame when asked for a
+        // one-frame decode, which would make an identical animated reference
+        // miss the pHash shortcut during normal multi-frame classification.
+        let decoded = decoder::decode_image(bytes, image_policy::MAX_SAMPLE_FRAMES)?;
         let frame = decoded
             .frames
             .first()

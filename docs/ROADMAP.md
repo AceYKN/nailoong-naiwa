@@ -15,13 +15,13 @@
 - [x] pHash：Rust 实现、参考图元数据保存和查询距离计算
 - [x] 将 pHash 接入候选粗筛并持久化描述子
 - [x] SIFT 主路径源码与 feature-gated OpenCV 后端
-- [ ] AKAZE 备用路径（待确认 Rust binding/native runtime 支持）
+- [ ] AKAZE 备用路径（可选；SIFT 主路径已满足当前规格，待确认 Rust binding/native runtime 支持）
 - [x] BFMatcher KNN(k=2) 与 Lowe Ratio Test 源码
 - [x] RANSAC Homography、inliers、空间 coverage 和 reprojection error 源码
 - [x] 静态 JPEG/PNG/WebP/GIF 统一解码边界
 - [x] GIF/Animated WebP 的采样边界与多帧严格门槛
 - [x] 开发者模式输出匹配点与几何调试图
-- [x] 静态图 P95 < 200ms、GIF P95 < 1000ms 的本机真实 smoke 基准（静态 1.2573ms；动画 123.9141ms；仍需第二台机器复测）
+- [x] 静态图 P95 < 200ms、GIF P95 < 1000ms 的本机真实 smoke 基准（当前实测静态 1.2031ms、动画 116.6309ms；仍需第二台机器复测）
 
 ## Phase 3 — ReferenceManager and cache
 
@@ -40,7 +40,7 @@
 - [x] 参考图页提供每类 1~10 张管理
 - [x] 识别失败时可将当前图片立即加入指定 Reference Bank
 - [x] 结果卡片显示 MatchResult 技术指标
-- [ ] 全流程离线 smoke test：1 张奶龙 + 1 张奶蛙 + 负例
+- [x] 全流程离线 smoke test：隔离 Tauri/WebView 与最新 NSIS 包均完成 1 张奶龙 + 1 张奶蛙 + 1 张负例，结果为奶龙 98%、奶蛙 98%、OTHER
 
 ## Phase 5 — Animated and robustness (v0.2)
 
@@ -69,7 +69,7 @@
 ## Phase 8 — Packaging and repository release
 
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）
-- [ ] 安装、启动、识别页和参考图页本机验证（隔离 Tauri E2E 已完成；最新 NSIS 包的 UI 启动仍需在不触碰正式应用数据的隔离环境复核）
+- [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
 - [ ] 清理旧 Git 历史中的本地敏感标识后，再创建公开 GitHub 初始提交
 - [ ] 公开仓库、版本说明和 v2 验收证据经用户确认后发布

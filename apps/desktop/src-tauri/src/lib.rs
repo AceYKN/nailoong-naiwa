@@ -170,7 +170,8 @@ pub(crate) fn classify_image_bytes(
                 references.push(features);
                 continue;
             }
-            let reference_image = decoder::decode_image(&reference_bytes, 1)?;
+            let reference_image =
+                decoder::decode_image(&reference_bytes, image_policy::MAX_SAMPLE_FRAMES)?;
             let frame = reference_image
                 .frames
                 .first()
@@ -448,7 +449,7 @@ fn write_descriptor_cache(
     class: vision::ReferenceClass,
     bytes: &[u8],
 ) -> Result<PathBuf, String> {
-    let decoded = decoder::decode_image(bytes, 1)?;
+    let decoded = decoder::decode_image(bytes, image_policy::MAX_SAMPLE_FRAMES)?;
     let frame = decoded
         .frames
         .first()
