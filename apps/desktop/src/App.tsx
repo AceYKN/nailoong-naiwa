@@ -476,7 +476,7 @@ function App() {
           <p className="eyebrow">TRAINING-FREE VISION</p>
           <h1>奶龙 / 奶蛙识别</h1>
           <p className="hero-copy">
-            使用本地参考图与 SIFT 特征匹配识别图片，不采集训练数据、不上传图片，也不生成 ONNX 模型。
+            使用本地参考图与 SIFT 特征匹配识别图片，不采集训练数据、不上传图片，分类过程完全离线。
           </p>
         </div>
         <div className="status-pill" data-status={appInfo.visionAvailable ? "ready" : "error"}>
