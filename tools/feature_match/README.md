@@ -28,6 +28,11 @@ release runtime DLL; it does not install or download anything. The OpenCV
 development and bundle commands run the same check automatically, so a missing
 native dependency is reported before Tauri or the Rust binding generator runs.
 
+The ordinary Tauri development command uses `http://127.0.0.1:15420`. This is
+intentional: some Windows installations reserve the conventional Tauri port
+`1420`, which makes Vite fail with `EACCES` before Tauri can create a window.
+The isolated E2E configuration continues to use port `5314`.
+
 Then run from the repository root:
 
 ```powershell

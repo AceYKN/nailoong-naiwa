@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 1420",
-    "dev:e2e": "vite --port 5314",
+    "dev": "vite",
+    "dev:e2e": "vite --mode e2e",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "tauri:dev": "tauri dev",
