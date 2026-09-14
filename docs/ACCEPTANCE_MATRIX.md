@@ -19,7 +19,7 @@
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
 | 输入边界 | Rust 侧保留 25 MiB、8192×8192、5000 万像素、500 帧，以及 PNG/JPEG/GIF/WebP 的受限检查。 |
 | v1 链路清理 | 数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；用户 QQ 缓存图片未被删除。 |
-| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；远端 `main` 为公开仓库，当前公开提交为 `12478de42714577ba7e2c77eec56ea35b2559f0e`，隔离暂存副本已同步。 |
+| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；远端 `main` 为公开仓库，当前公开提交为 `905c485df142677f025fda826fa967c96929338d`，隔离暂存副本已同步。 |
 
 ## 已实现但尚未正式验收
 
@@ -39,7 +39,7 @@
 | --- | --- |
 | OpenCV 原生环境 | 已在用户态工具目录完成一次 OpenCV 4.13.0 + Clang 验证；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器仍需独立验证；真实 OpenCV job 尚未纳入公共 CI。 |
 | `OTHER` / `UNKNOWN` | 已区分：低分且两类均无几何 inlier 返回 `OTHER`；模糊或有部分证据但不足以确定时返回 `UNKNOWN`。仍需真实负例冻结集校准边界。 |
-| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；当前公开 `main` 为 `12478de42714577ba7e2c77eec56ea35b2559f0e`，GitHub CI run `34813353287` 的仓库卫生、前端、Rust Ubuntu、Rust Windows 和 Windows Tauri 打包均成功。 |
+| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；当前公开 `main` 为 `905c485df142677f025fda826fa967c96929338d`，GitHub CI run `34814001094` 的仓库卫生、前端、Rust Ubuntu、Rust Windows 和 Windows Tauri 打包均成功。 |
 | DeepSeek key | 不再调用或上传图片；此前暴露过旧 key，用户应在服务商侧撤销。新 key 只要仍在本机用户环境变量中，也建议完成迁移后清除。 |
 
 ## 重跑核心验证
