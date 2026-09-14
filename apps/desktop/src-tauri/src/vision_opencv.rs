@@ -13,9 +13,9 @@ use opencv::{
     calib3d::{find_homography, RANSAC},
     core::{
         self, no_array, DMatch, KeyPoint, Mat, Point, Point2f, Rect, Scalar, Size, Vector, CV_8UC3,
-        NORM_L2,
+        NORM_HAMMING, NORM_L2,
     },
-    features2d::{BFMatcher, SIFT},
+    features2d::{BFMatcher, AKAZE, SIFT},
     imgcodecs::imencode_def,
     imgproc::{self, COLOR_GRAY2BGR, COLOR_RGB2GRAY, INTER_AREA, LINE_8},
     prelude::*,
@@ -33,11 +33,14 @@ pub const DEFAULT_LOWE_RATIO: f32 = 0.65;
 pub const DEFAULT_RANSAC_REPROJECTION_THRESHOLD: f64 = 3.0;
 pub const DEFAULT_PHASH_SHORTCUT_DISTANCE: u32 = 4;
 const DESCRIPTOR_MAGIC: &[u8] = b"NLNF-DESC\0";
-const DESCRIPTOR_VERSION: u32 = 3;
+const DESCRIPTOR_VERSION: u32 = 4;
 pub use crate::vision::VISION_PIPELINE_VERSION;
 const SHA256_HEX_LENGTH: usize = 64;
 const MAX_DESCRIPTOR_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SERIALIZED_KEYPOINTS: u32 = 100_000;
+const AKAZE_DESCRIPTOR_TYPE_MLDB: i32 = 5;
+const AKAZE_DESCRIPTOR_CHANNELS: i32 = 3;
+const AKAZE_DIFFUSIVITY_PM_G2: i32 = 2;
 const COLOR_SIGNATURE_HUE_BINS: usize = 12;
 const COLOR_SIGNATURE_SAMPLE_TARGET: usize = 4_096;
 const COLOR_SIGNATURE_LOW_SATURATION: f32 = 45.0 / 255.0;
@@ -172,7 +175,7 @@ impl Default for OpenCvConfig {
 pub fn descriptor_fingerprint(config: OpenCvConfig) -> String {
     let build_sha = option_env!("NLNF_BUILD_GIT_SHA").unwrap_or("unversioned");
     let payload = format!(
-        "pipeline={}\nbuild={build_sha}\ndescriptor_version={}\nmax_working_dimension={}\nmax_keypoints={}\nlowe_ratio_bits={:08x}\nransac_threshold_bits={:016x}\nsift_nfeatures={}\nsift_n_octave_layers=3\nsift_contrast_threshold_bits={:08x}\nsift_edge_threshold_bits={:08x}\nsift_sigma_bits={:08x}\n",
+        "pipeline={}\nbuild={build_sha}\ndescriptor_version={}\nmax_working_dimension={}\nmax_keypoints={}\nlowe_ratio_bits={:08x}\nransac_threshold_bits={:016x}\nextractor_policy=sift_then_akaze\nsift_nfeatures={}\nsift_n_octave_layers=3\nsift_contrast_threshold_bits={:08x}\nsift_edge_threshold_bits={:08x}\nsift_sigma_bits={:08x}\nakaze_descriptor_type={}\nakaze_descriptor_size=0\nakaze_descriptor_channels={}\nakaze_threshold_bits={:08x}\nakaze_n_octaves=4\nakaze_n_octave_layers=4\nakaze_diffusivity={}\nakaze_max_points={}\n",
         VISION_PIPELINE_VERSION,
         DESCRIPTOR_VERSION,
         config.max_working_dimension,
@@ -183,6 +186,11 @@ pub fn descriptor_fingerprint(config: OpenCvConfig) -> String {
         0.04_f32.to_bits(),
         10.0_f32.to_bits(),
         1.6_f32.to_bits(),
+        AKAZE_DESCRIPTOR_TYPE_MLDB,
+        AKAZE_DESCRIPTOR_CHANNELS,
+        0.001_f32.to_bits(),
+        AKAZE_DIFFUSIVITY_PM_G2,
+        config.max_keypoints,
     );
     crate::release::sha256_hex(payload.as_bytes())
 }
@@ -208,11 +216,42 @@ pub fn engine_fingerprint(config: OpenCvConfig, max_sample_frames: u32) -> Strin
     crate::release::sha256_hex(payload.as_bytes())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorKind {
+    Sift,
+    Akaze,
+}
+
+impl DescriptorKind {
+    fn code(self) -> u8 {
+        match self {
+            Self::Sift => 1,
+            Self::Akaze => 2,
+        }
+    }
+
+    fn from_code(code: u8) -> Result<Self, String> {
+        match code {
+            1 => Ok(Self::Sift),
+            2 => Ok(Self::Akaze),
+            _ => Err("descriptor cache contains an unknown extractor".to_owned()),
+        }
+    }
+
+    fn matcher_norm(self) -> i32 {
+        match self {
+            Self::Sift => NORM_L2,
+            Self::Akaze => NORM_HAMMING,
+        }
+    }
+}
+
 pub struct ReferenceFeatures {
     pub reference_id: String,
     pub class: ReferenceClass,
     pub source_sha256: String,
     pub descriptor_fingerprint: String,
+    pub descriptor_kind: DescriptorKind,
     pub phash: u64,
     pub width: i32,
     pub height: i32,
@@ -226,6 +265,7 @@ struct QueryFeatures {
     width: i32,
     height: i32,
     color_signature: ColorSignature,
+    descriptor_kind: DescriptorKind,
     keypoints: Vector<KeyPoint>,
     descriptors: Mat,
 }
@@ -240,6 +280,7 @@ struct DebugMatchPoint {
 pub struct OpenCvVisionEngine {
     config: OpenCvConfig,
     sift: opencv::core::Ptr<SIFT>,
+    akaze: opencv::core::Ptr<AKAZE>,
 }
 
 impl OpenCvVisionEngine {
@@ -254,7 +295,26 @@ impl OpenCvVisionEngine {
         }
         let sift =
             SIFT::create(config.max_keypoints, 3, 0.04, 10.0, 1.6, false).map_err(cv_error)?;
-        Ok(Self { config, sift })
+        // These numeric values are the stable OpenCV AKAZE defaults: MLDB,
+        // full descriptor, three channels, threshold 0.001, four octaves,
+        // four layers and DIFF_PM_G2. Keeping the parameters explicit makes
+        // the descriptor fingerprint describe the actual fallback pipeline.
+        let akaze = AKAZE::create(
+            AKAZE_DESCRIPTOR_TYPE_MLDB,
+            0,
+            AKAZE_DESCRIPTOR_CHANNELS,
+            0.001,
+            4,
+            4,
+            AKAZE_DIFFUSIVITY_PM_G2,
+            config.max_keypoints,
+        )
+        .map_err(cv_error)?;
+        Ok(Self {
+            config,
+            sift,
+            akaze,
+        })
     }
 
     pub fn extract_reference(
@@ -279,12 +339,13 @@ impl OpenCvVisionEngine {
         }
         let phash = phash::compute_rgb(&frame.rgb, frame.width, frame.height)?;
         let (gray, width, height) = self.working_gray(frame)?;
-        let (keypoints, descriptors) = self.extract_descriptors(&gray)?;
+        let (descriptor_kind, keypoints, descriptors) = self.extract_descriptors(&gray)?;
         Ok(ReferenceFeatures {
             reference_id: reference_id.into(),
             class,
             source_sha256,
             descriptor_fingerprint: descriptor_fingerprint(self.config),
+            descriptor_kind,
             phash,
             width,
             height,
@@ -338,12 +399,13 @@ impl OpenCvVisionEngine {
 
     fn extract_query(&mut self, frame: &DecodedFrame, phash: u64) -> Result<QueryFeatures, String> {
         let (gray, width, height) = self.working_gray(frame)?;
-        let (keypoints, descriptors) = self.extract_descriptors(&gray)?;
+        let (descriptor_kind, keypoints, descriptors) = self.extract_descriptors(&gray)?;
         Ok(QueryFeatures {
             phash,
             width,
             height,
             color_signature: ColorSignature::from_rgb(&frame.rgb, frame.width, frame.height)?,
+            descriptor_kind,
             keypoints,
             descriptors,
         })
@@ -397,13 +459,25 @@ impl OpenCvVisionEngine {
         Ok((resized, resized_width, resized_height))
     }
 
-    fn extract_descriptors(&mut self, gray: &Mat) -> Result<(Vector<KeyPoint>, Mat), String> {
+    fn extract_descriptors(
+        &mut self,
+        gray: &Mat,
+    ) -> Result<(DescriptorKind, Vector<KeyPoint>, Mat), String> {
         let mut keypoints = Vector::new();
         let mut descriptors = Mat::default();
         self.sift
             .detect_and_compute(gray, &no_array(), &mut keypoints, &mut descriptors, false)
             .map_err(cv_error)?;
-        Ok((keypoints, descriptors))
+        if !keypoints.is_empty() && !descriptors.empty() {
+            return Ok((DescriptorKind::Sift, keypoints, descriptors));
+        }
+
+        let mut keypoints = Vector::new();
+        let mut descriptors = Mat::default();
+        self.akaze
+            .detect_and_compute(gray, &no_array(), &mut keypoints, &mut descriptors, false)
+            .map_err(cv_error)?;
+        Ok((DescriptorKind::Akaze, keypoints, descriptors))
     }
 
     fn match_reference(
@@ -421,10 +495,14 @@ impl OpenCvVisionEngine {
         reference: &ReferenceFeatures,
     ) -> Result<(MatchResult, Vec<DebugMatchPoint>), String> {
         let phash_distance = Some(phash::hamming_distance(query.phash, reference.phash));
-        if query.descriptors.empty() || reference.descriptors.empty() {
+        if query.descriptor_kind != reference.descriptor_kind
+            || query.descriptors.empty()
+            || reference.descriptors.empty()
+        {
             return Ok((empty_match(reference, query, phash_distance), Vec::new()));
         }
-        let matcher = BFMatcher::new(NORM_L2, false).map_err(cv_error)?;
+        let matcher =
+            BFMatcher::new(query.descriptor_kind.matcher_norm(), false).map_err(cv_error)?;
         let mut knn_matches = Vector::<Vector<DMatch>>::new();
         matcher
             .knn_train_match_def(
@@ -651,6 +729,7 @@ pub fn write_reference_features(path: &Path, features: &ReferenceFeatures) -> Re
         DESCRIPTOR_MAGIC.len()
             + 4
             + 1
+            + 1
             + 4
             + 4
             + SHA256_HEX_LENGTH
@@ -667,6 +746,7 @@ pub fn write_reference_features(path: &Path, features: &ReferenceFeatures) -> Re
     bytes.extend_from_slice(DESCRIPTOR_MAGIC);
     push_u32(&mut bytes, DESCRIPTOR_VERSION);
     bytes.push(reference_class_code(features.class));
+    bytes.push(features.descriptor_kind.code());
     bytes.extend_from_slice(features.source_sha256.as_bytes());
     bytes.extend_from_slice(features.descriptor_fingerprint.as_bytes());
     push_i32(&mut bytes, features.width);
@@ -803,6 +883,7 @@ pub fn read_reference_features(
     if class != expected_class {
         return Err("descriptor cache class does not match the reference metadata".to_owned());
     }
+    let descriptor_kind = DescriptorKind::from_code(read_u8(&mut cursor)?)?;
     let source_sha256 = read_fixed_ascii(&mut cursor, SHA256_HEX_LENGTH, "source SHA-256")?;
     if !source_sha256.eq_ignore_ascii_case(expected_source_sha256) {
         return Err(
@@ -883,6 +964,7 @@ pub fn read_reference_features(
         class,
         source_sha256,
         descriptor_fingerprint,
+        descriptor_kind,
         phash,
         width,
         height,
@@ -1114,7 +1196,7 @@ mod tests {
 
     use super::{
         apply_color_compatibility, descriptor_fingerprint, read_reference_features,
-        write_reference_features, ColorSignature, OpenCvVisionEngine,
+        write_reference_features, ColorSignature, DescriptorKind, OpenCvVisionEngine,
     };
     use crate::{
         decoder::DecodedFrame,
@@ -1412,6 +1494,17 @@ mod tests {
         assert!(apply_color_compatibility(0.84, 0.0) < 0.60);
     }
 
+    #[test]
+    fn empty_sift_result_uses_akaze_fallback() {
+        let frame = solid_frame(320, 240, [128, 128, 128]);
+        let mut engine = OpenCvVisionEngine::new(Default::default()).unwrap();
+        let reference = engine
+            .extract_reference("NL-AKAZE-FALLBACK", ReferenceClass::Nailong, &frame)
+            .unwrap();
+        assert_eq!(reference.descriptor_kind, DescriptorKind::Akaze);
+        assert!(reference.descriptors.empty());
+    }
+
     #[cfg(windows)]
     #[test]
     fn animated_reference_uses_the_query_sampling_policy_for_phash() {
@@ -1612,6 +1705,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(loaded.phash, reference.phash);
+        assert_eq!(loaded.descriptor_kind, reference.descriptor_kind);
         assert_eq!(loaded.keypoints.len(), reference.keypoints.len());
         assert_eq!(loaded.descriptors.rows(), reference.descriptors.rows());
         assert_eq!(loaded.descriptors.cols(), reference.descriptors.cols());
