@@ -201,6 +201,8 @@ function App() {
   const [qqToken, setQqToken] = useState("");
   const [qqBusy, setQqBusy] = useState(false);
   const [qqError, setQqError] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const batchClassifyingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nailongReferenceInputRef = useRef<HTMLInputElement>(null);
   const frogReferenceInputRef = useRef<HTMLInputElement>(null);
@@ -333,6 +335,31 @@ function App() {
         : candidate));
     }
   }, [appInfo.visionAvailable, appInfo.visionMessage, images]);
+
+  const classifyPending = useCallback(async () => {
+    if (batchClassifyingRef.current) return;
+    const pending = images.filter((image) => !image.classification && !image.classifying);
+    if (pending.length === 0) return;
+
+    batchClassifyingRef.current = true;
+    setBatchProgress({ done: 0, total: pending.length });
+    let cursor = 0;
+    const worker = async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= pending.length) return;
+        await classify(pending[index].id);
+        setBatchProgress((progress) => progress ? { ...progress, done: progress.done + 1 } : progress);
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(2, pending.length) }, () => worker()));
+    } finally {
+      batchClassifyingRef.current = false;
+      setBatchProgress(null);
+    }
+  }, [classify, images]);
 
   const showDebugMatch = useCallback(async (id: string) => {
     if (!isTauriRuntime()) return;
@@ -561,6 +588,12 @@ function App() {
         <div><p className="eyebrow">REVIEW QUEUE</p><h2>待识别图片</h2></div>
         <div className="section-actions">
           <span className="count-badge">{images.length} / {MAX_QUEUE_SIZE}</span>
+          {batchProgress && <span className="count-badge">匹配 {batchProgress.done}/{batchProgress.total}</span>}
+          {images.some((image) => !image.classification && !image.classifying) && (
+            <button type="button" className="secondary-button" onClick={() => void classifyPending()} disabled={batchProgress !== null}>
+              {batchProgress ? "批量匹配中…" : "批量开始匹配"}
+            </button>
+          )}
           {images.length > 0 && <button type="button" className="text-button" onClick={clearImages}>清空</button>}
         </div>
       </div>
