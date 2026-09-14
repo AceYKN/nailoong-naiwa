@@ -1139,6 +1139,17 @@ mod tests {
         mat_to_frame(&blurred)
     }
 
+    fn occluded_frame(frame: &DecodedFrame) -> DecodedFrame {
+        let mut occluded = frame.clone();
+        for y in 36..112 {
+            for x in 26..122 {
+                let index = ((y * occluded.width + x) * 3) as usize;
+                occluded.rgb[index..index + 3].copy_from_slice(&[18, 18, 18]);
+            }
+        }
+        occluded
+    }
+
     fn solid_frame(width: u32, height: u32, rgb: [u8; 3]) -> DecodedFrame {
         let mut pixels = vec![0_u8; (width * height * 3) as usize];
         for chunk in pixels.as_chunks_mut::<3>().0 {
@@ -1219,6 +1230,7 @@ mod tests {
             ("jpeg", jpeg_frame(&reference_frame, 35)),
             ("text", text_overlay_frame(&reference_frame)),
             ("blur", blurred_frame(&reference_frame)),
+            ("occlusion", occluded_frame(&reference_frame)),
         ];
         for (name, frame) in transformed {
             let query = engine

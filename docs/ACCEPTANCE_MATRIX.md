@@ -29,7 +29,7 @@
 | OpenCV 冒烟 | feature 单测验证自生成纹理图的 SIFT 几何自匹配、缩放/旋转/裁剪/JPEG/文字/模糊鲁棒性、无关纹理拒绝、描述子缓存 round-trip、PNG 调试图和静态 P95；2026-09-14 显式环境变量指向本地缓存图片时，Rust Windows decoder + OpenCV smoke 实测奶龙 `NAILONG 0.980`、奶蛙 `NAIWA_FROG 0.980`，OTHER 图片返回 `OTHER`，真实静态 P95 `1.3004ms`。本地 304 条验证 manifest（奶龙 178、奶蛙 4、OTHER 122）重新处理 304、跳过 0、奶龙正确 1、奶蛙正确 2、OTHER/UNKNOWN 122、`false_target_label=0`、`false_recall=0`；真实动画为 39 帧抽样 12 帧，P95 `154.3228ms`，未达到奶蛙严格门槛。另有回归测试确认动画参考图和查询图使用相同采样策略。该证据不是完整准确率验收，也不是训练数据或发布包内容。 |
 | Windows NSIS 本机包 | 2026-09-13 OpenCV 专用 Tauri release build 与 NSIS 产物退出码 0；最终安装包 18,406,382 bytes，SHA-256 `4B1BBAF9C004692057A38BA6FA7413ABE2D52AA674074C2F098F7C5A32C6FBE1`。隔离目录安装后包含 `nlnf-desktop.exe`、`opencv_world4130.dll` 和 `uninstall.exe`；静默安装退出码 0；实际启动 `tauri.localhost` UI，显示初始化向导和离线分类边界；此前同一运行时构建已完成两类参考图添加、奶龙/奶蛙/负例三张识别，随后卸载退出码 0，安装目录和隔离应用数据均消失。仅代表当前机器，未覆盖第二台机器、Defender 或签名。 |
 | 动图 | Rust decoder 已有采样边界，视觉层有多帧严格奶蛙门槛；真实 GIF smoke 已验证解码和性能，但仍缺真实奶蛙动画正例、Animated WebP 和完整 QQ 场景证据。 |
-| 负例与鲁棒性 | 已有缩放鲁棒性、无关纹理拒绝、RANSAC 误匹配、低 inlier 高分拒绝、色彩辅助惩罚单测；同一份本地 304 条 manifest 重新验证后 `false_target_label=0`、`false_recall=0`，但仍缺冻结的裁剪、压缩、遮挡、文字覆盖、黄色卡通等测试集和更广泛正例覆盖。 |
+| 负例与鲁棒性 | 已有缩放、旋转、裁剪、JPEG 压缩、局部遮挡、文字覆盖、模糊、无关纹理拒绝、RANSAC 误匹配、低 inlier 高分拒绝、色彩辅助惩罚单测；同一份本地 304 条 manifest 重新验证后 `false_target_label=0`、`false_recall=0`，但仍缺真实角色冻结负例和更广泛正例覆盖。 |
 | QQ | OneBot 11 已接入桌面后台 worker：仅允许 loopback、Token 只在内存、反向事件有界读取、群模式持久化、Observe 日志持久化/回读；本机 mock OneBot E2E 已通过。普通构建现在硬性拒绝 `AUTO_RECALL`，带 release 特性的构建仍必须先通过冻结验证门禁；真实 QQ/OneBot 账号和人工 Observe 运行仍未验证，因此 AUTO_RECALL 仍不作为发布能力开放。 |
 | 冻结验证门禁 | `tools/validation/` 提供不复制图片的 JSONL manifest 生成器和本地 release-gate runner；Rust 门禁会校验 100/100/1000 类别数量、50 个真实 GIF、文件完整性、目标类漏检和负例误检。当前尚未提供满足门槛且 truth-reviewed 的冻结材料。 |
 
