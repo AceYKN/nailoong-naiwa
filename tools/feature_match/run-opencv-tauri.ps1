@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$expectedWorldName = 'opencv_world4130'
 
 function Import-UserEnvironmentValue([string]$Name) {
   $processValue = [Environment]::GetEnvironmentVariable($Name, 'Process')
@@ -28,6 +29,21 @@ function Import-UserEnvironmentValue([string]$Name) {
   'LIBCLANG_PATH',
   'CLANG_PATH'
 ) | ForEach-Object { Import-UserEnvironmentValue $_ }
+
+function Set-DefaultEnvironmentValue([string]$Name, [string]$Value) {
+  if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name, 'Process')) -and
+      -not [string]::IsNullOrWhiteSpace($Value)) {
+    [Environment]::SetEnvironmentVariable($Name, $Value, 'Process')
+  }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($env:OPENCV_DIR)) {
+  Set-DefaultEnvironmentValue 'OPENCV_INCLUDE_PATHS' (Join-Path $env:OPENCV_DIR 'include')
+  Set-DefaultEnvironmentValue 'OPENCV_LINK_PATHS' (Join-Path $env:OPENCV_DIR 'x64\vc16\lib')
+  Set-DefaultEnvironmentValue 'OPENCV_RUNTIME_DIR' (Join-Path $env:OPENCV_DIR 'x64\vc16\bin')
+}
+Set-DefaultEnvironmentValue 'OPENCV_WORLD_NAME' $expectedWorldName
+Set-DefaultEnvironmentValue 'OPENCV_LINK_LIBS' $expectedWorldName
 
 $preflight = Join-Path $PSScriptRoot 'check-opencv-env.ps1'
 & pwsh -NoProfile -ExecutionPolicy Bypass -File $preflight -RequireRuntime
