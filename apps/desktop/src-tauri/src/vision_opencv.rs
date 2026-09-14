@@ -295,21 +295,14 @@ impl OpenCvVisionEngine {
         }
         let sift =
             SIFT::create(config.max_keypoints, 3, 0.04, 10.0, 1.6, false).map_err(cv_error)?;
-        // These numeric values are the stable OpenCV AKAZE defaults: MLDB,
-        // full descriptor, three channels, threshold 0.001, four octaves,
-        // four layers and DIFF_PM_G2. Keeping the parameters explicit makes
-        // the descriptor fingerprint describe the actual fallback pipeline.
-        let akaze = AKAZE::create(
-            AKAZE_DESCRIPTOR_TYPE_MLDB,
-            0,
-            AKAZE_DESCRIPTOR_CHANNELS,
-            0.001,
-            4,
-            4,
-            AKAZE_DIFFUSIVITY_PM_G2,
-            config.max_keypoints,
-        )
-        .map_err(cv_error)?;
+        // Use the OpenCV defaults for AKAZE (MLDB, full descriptor, three
+        // channels, threshold 0.001, four octaves, four layers and
+        // DIFF_PM_G2). create_def avoids enum-type differences between the
+        // OpenCV 4 and 5 Rust bindings; the keypoint cap is set explicitly.
+        let mut akaze = AKAZE::create_def().map_err(cv_error)?;
+        akaze
+            .set_max_points(config.max_keypoints)
+            .map_err(cv_error)?;
         Ok(Self {
             config,
             sift,
