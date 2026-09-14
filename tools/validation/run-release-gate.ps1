@@ -35,7 +35,21 @@ if ([string]::IsNullOrWhiteSpace($OpenCvDir)) {
     $OpenCvDir = Import-UserEnvironmentValue 'OPENCV_DIR'
 }
 if ([string]::IsNullOrWhiteSpace($LlvmBin)) {
-    $LlvmBin = Import-UserEnvironmentValue 'LIBCLANG_PATH'
+    $clangPath = Import-UserEnvironmentValue 'CLANG_PATH'
+    if (-not [string]::IsNullOrWhiteSpace($clangPath)) {
+        if (Test-Path -LiteralPath $clangPath -PathType Leaf) {
+            $LlvmBin = Split-Path -Parent $clangPath
+        } elseif (Test-Path -LiteralPath $clangPath -PathType Container) {
+            $LlvmBin = $clangPath
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($LlvmBin)) {
+    $libclangPath = Import-UserEnvironmentValue 'LIBCLANG_PATH'
+    if (-not [string]::IsNullOrWhiteSpace($libclangPath) -and
+        (Test-Path -LiteralPath (Join-Path $libclangPath 'clang.exe') -PathType Leaf)) {
+        $LlvmBin = $libclangPath
+    }
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path

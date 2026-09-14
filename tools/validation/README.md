@@ -50,6 +50,11 @@ powershell -ExecutionPolicy Bypass -File tools/validation/run-release-gate.ps1 `
   -LlvmBin C:\path\to\llvm\bin
 ```
 
+When `-LlvmBin` is omitted, the runner derives the LLVM bin directory from
+`CLANG_PATH` (the parent of `clang.exe`). It only falls back to
+`LIBCLANG_PATH` when that directory also contains `clang.exe`; a directory
+that contains only `libclang.dll` is not sufficient for the validation gate.
+
 `-NailongReference` and `-NaiwaFrogReference` each accept 1~10 paths. A
 single path is valid for the One-Shot MVP; comma-separated paths form the full
 class Reference Bank used by the certificate. Every supplied path must exist.
