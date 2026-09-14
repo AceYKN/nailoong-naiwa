@@ -1,0 +1,55 @@
+# Frozen validation gate
+
+This directory contains the release-gate runner for Specification v2. It is
+validation infrastructure only. It does not train a model, upload images, or
+belong to the runtime classification path.
+
+Keep the validation corpus outside the repository. Use this layout on a local
+drive:
+
+```text
+validation-root/
+├── nailong/
+├── naiwa_frog/
+└── other/
+```
+
+Put only truth-reviewed validation material in those folders. The manifest is
+JSONL and contains only a relative path and one of `NAILONG`, `NAIWA_FROG`, or
+`OTHER`:
+
+```json
+{"source_relative_path":"nailong/example.png","label":"NAILONG"}
+```
+
+Generate it without copying the images:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/validation/new-validation-manifest.ps1 `
+  -ValidationRoot D:\path\to\validation-root
+```
+
+The release gate requires at least 100 Nailong rows, 100 Naiwa Frog rows,
+1,000 `OTHER` rows, and 50 files whose decoded format is GIF. It also requires
+every manifest path to exist, every row to process, both target classes to be
+classified correctly, no `OTHER` row to become a target, and zero strict
+`AUTO_RECALL` candidates among `OTHER` rows. The Rust test additionally checks
+the actual decoded format, so a `.gif` filename alone is not enough.
+
+Run it after configuring the user-local OpenCV and Clang paths described in
+`tools/feature_match/README.md`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/validation/run-release-gate.ps1 `
+  -ValidationRoot D:\path\to\validation-root `
+  -Manifest D:\path\to\validation-root\manifest.jsonl `
+  -NailongReference D:\path\to\nailong-reference.gif `
+  -NaiwaFrogReference D:\path\to\frog-reference.gif `
+  -OpenCvDir C:\path\to\opencv\build `
+  -LlvmBin C:\path\to\llvm\bin
+```
+
+Do not use unreviewed QQ-cache files as truth labels. A large cache count is
+not evidence of 100/100/1000 correct samples; the labels must be independently
+reviewed before enabling the gate. Until this command passes on a frozen
+corpus, `AUTO_RECALL` remains disabled by the application policy.

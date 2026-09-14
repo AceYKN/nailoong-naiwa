@@ -994,8 +994,8 @@ fn cv_error(error: opencv::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use std::time::Instant;
+    use std::{collections::HashSet, path::Path};
 
     use super::{
         apply_color_compatibility, read_reference_features, write_reference_features,
@@ -1505,6 +1505,36 @@ mod tests {
     }
 
     #[cfg(windows)]
+    const RELEASE_MIN_NAILONG: usize = 100;
+    #[cfg(windows)]
+    const RELEASE_MIN_NAIWA_FROG: usize = 100;
+    #[cfg(windows)]
+    const RELEASE_MIN_OTHER: usize = 1_000;
+    #[cfg(windows)]
+    const RELEASE_MIN_GIF: usize = 50;
+
+    #[cfg(windows)]
+    fn release_gate_requested() -> bool {
+        matches!(
+            std::env::var("NLNF_REQUIRE_RELEASE_GATE").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE")
+        )
+    }
+
+    #[cfg(windows)]
+    fn validation_path(root: &Path, relative_path: &str) -> std::path::PathBuf {
+        let relative = Path::new(relative_path);
+        assert!(
+            !relative.is_absolute()
+                && !relative
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir)),
+            "validation manifest paths must stay below the validation root: {relative_path}"
+        );
+        root.join(relative)
+    }
+
+    #[cfg(windows)]
     #[test]
     fn local_manifest_validation_reports_false_recall_safety() {
         let (Some(root), Some(manifest), Some(nailong_path), Some(frog_path)) = (
@@ -1524,6 +1554,33 @@ mod tests {
             .map(|line| serde_json::from_str::<ValidationRow>(line).expect("parse validation row"))
             .collect::<Vec<_>>();
         let mut seen = HashSet::new();
+        let rows = rows
+            .into_iter()
+            .filter(|row| seen.insert(row.source_relative_path.clone()))
+            .collect::<Vec<_>>();
+        let expected_nailong = rows.iter().filter(|row| row.label == "NAILONG").count();
+        let expected_frog = rows.iter().filter(|row| row.label == "NAIWA_FROG").count();
+        let expected_other = rows.iter().filter(|row| row.label == "OTHER").count();
+        assert!(
+            rows.iter()
+                .all(|row| matches!(row.label.as_str(), "NAILONG" | "NAIWA_FROG" | "OTHER")),
+            "validation manifest contains an unsupported label"
+        );
+        let unique_row_count = rows.len();
+        if release_gate_requested() {
+            assert!(
+                expected_nailong >= RELEASE_MIN_NAILONG,
+                "release validation needs at least {RELEASE_MIN_NAILONG} NAILONG rows, got {expected_nailong}"
+            );
+            assert!(
+                expected_frog >= RELEASE_MIN_NAIWA_FROG,
+                "release validation needs at least {RELEASE_MIN_NAIWA_FROG} NAIWA_FROG rows, got {expected_frog}"
+            );
+            assert!(
+                expected_other >= RELEASE_MIN_OTHER,
+                "release validation needs at least {RELEASE_MIN_OTHER} OTHER rows, got {expected_other}"
+            );
+        }
         let nailong_bytes = std::fs::read(nailong_path).expect("read nailong reference");
         let frog_bytes = std::fs::read(frog_path).expect("read frog reference");
         let nailong = crate::decoder::decode_image(&nailong_bytes, 12).expect("decode nailong");
@@ -1543,14 +1600,13 @@ mod tests {
         let mut false_recall = 0_u32;
         let mut correct_nailong = 0_u32;
         let mut correct_frog = 0_u32;
+        let mut incorrect_target = 0_u32;
         let mut other_or_unknown = 0_u32;
+        let mut gif_count = 0_u32;
         let mut false_positive_paths = Vec::new();
         let started = Instant::now();
         for row in rows {
-            if !seen.insert(row.source_relative_path.clone()) {
-                continue;
-            }
-            let path = std::path::Path::new(&root).join(&row.source_relative_path);
+            let path = validation_path(Path::new(&root), &row.source_relative_path);
             if !path.is_file() {
                 skipped += 1;
                 continue;
@@ -1558,6 +1614,9 @@ mod tests {
             let bytes = std::fs::read(&path).expect("read validation image");
             let decoded =
                 crate::decoder::decode_image(&bytes, 12).expect("decode validation image");
+            if decoded.inspection.format == crate::image_policy::ImageFormat::Gif {
+                gif_count += 1;
+            }
             let result = engine
                 .classify_frames(&decoded.frames, &references)
                 .expect("classify validation image");
@@ -1565,6 +1624,7 @@ mod tests {
             match row.label.as_str() {
                 "NAILONG" if result.label == ClassificationLabel::Nailong => correct_nailong += 1,
                 "NAIWA_FROG" if result.label == ClassificationLabel::NaiwaFrog => correct_frog += 1,
+                "NAILONG" | "NAIWA_FROG" => incorrect_target += 1,
                 "OTHER"
                     if !matches!(
                         result.label,
@@ -1597,12 +1657,16 @@ mod tests {
         }
         let elapsed = started.elapsed();
         eprintln!(
-            "local validation: processed={} skipped={} nailong_correct={} frog_correct={} other_or_unknown={} false_target_label={} false_recall={} elapsed_ms={:.1}",
+            "local validation: processed={} skipped={} nailong_correct={}/{} frog_correct={}/{} other_or_unknown={} gif_count={} incorrect_target={} false_target_label={} false_recall={} elapsed_ms={:.1}",
             processed,
             skipped,
             correct_nailong,
+            expected_nailong,
             correct_frog,
+            expected_frog,
             other_or_unknown,
+            gif_count,
+            incorrect_target,
             false_target_label,
             false_recall,
             elapsed.as_secs_f64() * 1000.0
@@ -1618,5 +1682,35 @@ mod tests {
             false_recall, 0,
             "negative samples met the strict recall gate"
         );
+        if release_gate_requested() {
+            assert_eq!(
+                skipped, 0,
+                "release validation cannot contain missing files: {skipped} skipped"
+            );
+            assert_eq!(
+                processed, unique_row_count as u32,
+                "release validation did not process every unique manifest row"
+            );
+            assert_eq!(
+                correct_nailong, expected_nailong as u32,
+                "release validation contains a NAILONG false negative"
+            );
+            assert_eq!(
+                correct_frog, expected_frog as u32,
+                "release validation contains a NAIWA_FROG false negative"
+            );
+            assert_eq!(
+                incorrect_target, 0,
+                "release validation classified a target row as the wrong target"
+            );
+            assert_eq!(
+                false_target_label, 0,
+                "release validation classified an OTHER row as a target"
+            );
+            assert!(
+                gif_count as usize >= RELEASE_MIN_GIF,
+                "release validation needs at least {RELEASE_MIN_GIF} decoded GIF files, got {gif_count}"
+            );
+        }
     }
 }

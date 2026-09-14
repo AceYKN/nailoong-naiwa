@@ -11,6 +11,7 @@
 - OpenCV SIFT、RANSAC 和版本化描述子缓存已接入 feature-gated 后端；未设置原生依赖时桌面识别按钮仍会 fail closed，不会伪造 v2 识别结果。
 - OneBot 11 loopback Adapter 已接入桌面 QQ 页面：连接、反向事件、OFF/OBSERVE/AUTO_RECALL 群模式和 moderation_log 持久化均有本机 mock E2E；默认仍为 OFF。
 - QQ 默认保持 `OFF`。真实 Adapter、Observe 和 Auto Recall 都必须在本地测试与人工验收后才会开放。
+- 公开仓库已创建为 [`AceYKN/nailoong-naiwa`](https://github.com/AceYKN/nailoong-naiwa)；公开内容只包含干净源码和文档，不包含 QQ 缓存、验证图片、模型、安装包或密钥。
 - v1 的数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；不会删除用户 QQ 缓存图片。
 
 ## 目录
@@ -23,6 +24,7 @@ tests/                        传统视觉、负例、变换、GIF 和 QQ Mock �
 docs/                         架构、路线图和验收证据
 spec-v2.md                    当前权威规格
 tools/feature_match/          Windows OpenCV/Clang 环境与打包辅助脚本
+tools/validation/              冻结验证 manifest 生成与发布门禁脚本
 ```
 
 ## 开发命令
@@ -45,6 +47,10 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
+
+若要执行正式冻结验证，先准备独立于仓库的 truth-reviewed 验证材料，再
+按 [`tools/validation/README.md`](tools/validation/README.md) 生成 manifest
+并运行 release gate。该流程只验证，不训练、不上传图片。
 
 OpenCV 是生产视觉后端且默认 feature-gated。Windows 原生依赖、环境变量和验证命令见 [`tools/feature_match/README.md`](tools/feature_match/README.md)；未配置它时仍可运行跨平台的 fail-closed 核心和 UI 检查。
 

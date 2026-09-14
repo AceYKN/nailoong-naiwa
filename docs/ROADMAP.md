@@ -21,7 +21,7 @@
 - [x] 静态 JPEG/PNG/WebP/GIF 统一解码边界
 - [x] GIF/Animated WebP 的采样边界与多帧严格门槛
 - [x] 开发者模式输出匹配点与几何调试图
-- [x] 静态图 P95 < 200ms、GIF P95 < 1000ms 的本机真实 smoke 基准（当前实测静态 1.2031ms、动画 116.6309ms；仍需第二台机器复测）
+- [x] 静态图 P95 < 200ms、GIF P95 < 1000ms 的本机真实 smoke 基准（2026-09-14 实测静态 1.3004ms、动画 154.3228ms；仍需第二台机器复测）
 
 ## Phase 3 — ReferenceManager and cache
 
@@ -61,6 +61,8 @@
 
 ## Phase 7 — Auto Recall release gate
 
+- [x] 将 `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 和动画多帧条件固化为可执行决策门禁
+- [x] 提供独立于运行时的冻结验证 manifest 生成器与 release-gate runner；未满足数据门槛时 fail closed
 - [ ] `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 全部通过
 - [ ] 100+ 奶龙、100+ 奶蛙、1000+ 其他、50+ GIF 的冻结验证材料
 - [x] Mock 重复事件、断线、图片获取失败和撤回失败测试（`qq.rs` 覆盖 at-most-once、offline、download/classifier failure、recall failure）
@@ -71,8 +73,8 @@
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）
 - [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
-- [ ] 清理旧 Git 历史中的本地敏感标识后，再创建公开 GitHub 初始提交
-- [ ] 公开仓库、版本说明和 v2 验收证据经用户确认后发布
+- [x] 清理旧 Git 历史中的本地敏感标识后，创建干净公开 GitHub 初始提交
+- [x] 用户确认后创建并推送公开仓库 `AceYKN/nailoong-naiwa`；正式 Auto Recall release gate 仍未通过
 
 ## 明确删除项
 

@@ -1,12 +1,10 @@
 //! Bounded desktop image decoding and model-input preprocessing.
 //!
 //! The header policy is checked before handing bytes to a decoder. Windows
-//! uses the system WIC backend for all supported formats and streams only the
-//! selected animation frames. Non-Windows builds keep a dependency-light PNG
-//! backend and fail closed for formats without a shipped decoder; no first
-//! frame or fake tensor is returned.
+//! uses the system WIC backend for supported formats and streams only the
+//! selected animation frames. WebP also has a pure-Rust fallback because WIC
+//! is not guaranteed to ship a WebP decoder on every Windows image.
 
-#[cfg(not(windows))]
 use std::io::Cursor;
 
 use serde::Serialize;
@@ -67,23 +65,38 @@ pub fn decode_image(bytes: &[u8], max_sample_frames: u32) -> Result<DecodedImage
     }
     let sampled_frame_indices = sample_indices(inspection.frame_count, sample_limit);
     #[cfg(windows)]
-    let mut frames = decode_with_wic(bytes, &sampled_frame_indices)?;
+    let mut frames = match decode_with_wic(bytes, &sampled_frame_indices) {
+        Ok(frames) => frames,
+        Err(wic_error) if inspection.format == ImageFormat::Webp => {
+            decode_with_pure_rust_webp(bytes, &sampled_frame_indices).map_err(|fallback_error| {
+                format!(
+                    "WIC WebP decoder failed ({wic_error}); pure-Rust fallback failed: {fallback_error}"
+                )
+            })?
+        }
+        Err(error) => return Err(error),
+    };
     #[cfg(windows)]
     if inspection.format == ImageFormat::Jpeg {
         apply_jpeg_exif_orientation(&mut frames, exif_orientation(bytes))?;
     }
     #[cfg(not(windows))]
     let frames = {
-        if inspection.format != ImageFormat::Png {
-            return Err(format!(
-                "{} decoder backend is not installed; refusing to fabricate model input",
-                format_name(inspection.format)
-            ));
+        match inspection.format {
+            ImageFormat::Png => {
+                if inspection.animated {
+                    return Err("animated PNG decoding backend is not installed".to_owned());
+                }
+                vec![decode_png(bytes)?]
+            }
+            ImageFormat::Webp => decode_with_pure_rust_webp(bytes, &sampled_frame_indices)?,
+            format => {
+                return Err(format!(
+                    "{} decoder backend is not installed; refusing to fabricate model input",
+                    format_name(format)
+                ));
+            }
         }
-        if inspection.animated {
-            return Err("animated PNG decoding backend is not installed".to_owned());
-        }
-        vec![decode_png(bytes)?]
     };
     Ok(DecodedImage {
         inspection,
@@ -385,6 +398,88 @@ fn decode_png(bytes: &[u8]) -> Result<DecodedFrame, String> {
     })
 }
 
+/// Decode WebP without relying on the platform codec registry. This is used
+/// as the Windows WIC fallback and on non-Windows builds where only the
+/// dependency-light PNG decoder is otherwise shipped.
+fn decode_with_pure_rust_webp(bytes: &[u8], wanted: &[u32]) -> Result<Vec<DecodedFrame>, String> {
+    if wanted.is_empty() {
+        return Err("WebP decoder received no requested frames".to_owned());
+    }
+
+    let mut decoder = image_webp::WebPDecoder::new(Cursor::new(bytes))
+        .map_err(|error| format!("cannot create pure-Rust WebP decoder: {error}"))?;
+    let (width, height) = decoder.dimensions();
+    if width == 0 || height == 0 {
+        return Err("pure-Rust WebP decoder returned an empty image".to_owned());
+    }
+    let buffer_size = decoder
+        .output_buffer_size()
+        .ok_or_else(|| "pure-Rust WebP frame buffer size overflow".to_owned())?;
+    let has_alpha = decoder.has_alpha();
+    let mut buffer = vec![0_u8; buffer_size];
+    let mut decoded = Vec::with_capacity(wanted.len());
+
+    if decoder.is_animated() {
+        let frame_count = decoder.num_frames();
+        if frame_count == 0 || frame_count > image_policy::MAX_DECODE_FRAMES {
+            return Err(format!(
+                "pure-Rust WebP reported an unsafe frame count: {frame_count}"
+            ));
+        }
+        if wanted.iter().any(|index| *index >= frame_count) {
+            return Err("WebP frame count disagrees with the sampled frame indices".to_owned());
+        }
+        for source_index in 0..frame_count {
+            decoder
+                .read_frame(&mut buffer)
+                .map_err(|error| format!("cannot decode WebP frame {source_index}: {error}"))?;
+            if wanted.binary_search(&source_index).is_ok() {
+                decoded.push(DecodedFrame {
+                    source_index,
+                    width,
+                    height,
+                    rgb: webp_rgb(&buffer, has_alpha)?,
+                });
+            }
+        }
+    } else {
+        if wanted.iter().any(|index| *index != 0) {
+            return Err("static WebP cannot provide a non-zero frame index".to_owned());
+        }
+        decoder
+            .read_image(&mut buffer)
+            .map_err(|error| format!("cannot decode WebP image: {error}"))?;
+        decoded.push(DecodedFrame {
+            source_index: 0,
+            width,
+            height,
+            rgb: webp_rgb(&buffer, has_alpha)?,
+        });
+    }
+
+    if decoded.len() != wanted.len() {
+        return Err("pure-Rust WebP decoder returned an incomplete frame selection".to_owned());
+    }
+    Ok(decoded)
+}
+
+fn webp_rgb(buffer: &[u8], has_alpha: bool) -> Result<Vec<u8>, String> {
+    if !has_alpha {
+        if !buffer.len().is_multiple_of(3) {
+            return Err("WebP RGB buffer is not channel aligned".to_owned());
+        }
+        return Ok(buffer.to_vec());
+    }
+    let (pixels, remainder) = buffer.as_chunks::<4>();
+    if !remainder.is_empty() {
+        return Err("WebP RGBA buffer is not channel aligned".to_owned());
+    }
+    Ok(pixels
+        .iter()
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect())
+}
+
 fn resize_lanczos3(frame: &DecodedFrame) -> Result<Vec<u8>, String> {
     let expected = usize::try_from(frame.width).ok().and_then(|width| {
         usize::try_from(frame.height)
@@ -592,8 +687,8 @@ mod tests {
     use std::io::Cursor;
 
     use super::{
-        apply_exif_orientation, decode_image, exif_orientation, preprocess, sample_indices,
-        DecodedFrame, MODEL_HEIGHT, MODEL_WIDTH,
+        apply_exif_orientation, decode_image, decode_with_pure_rust_webp, exif_orientation,
+        preprocess, sample_indices, DecodedFrame, MODEL_HEIGHT, MODEL_WIDTH,
     };
 
     fn png_bytes() -> Vec<u8> {
@@ -687,6 +782,35 @@ mod tests {
         assert_eq!(counter_clockwise.rgb, vec![20, 0, 0, 10, 0, 0]);
     }
 
+    #[test]
+    fn pure_rust_webp_decoder_reads_static_and_animated_frames() {
+        let webp = decode_base64("UklGRsoAAABXRUJQVlA4WAoAAAACAAAAAQAAAQAAQU5JTQYAAAAAAAAAAABBTk1GSgAAAAAAAAAAAAEAAAEAAAoAAAJWUDggMgAAADABAJ0BKgIAAgABQCYloAADcAD+8ut///mwP/bz/wR6Af//0uD//pcH//S4P/SkAAAAQU5NRkwAAAAAAAAAAAABAAABAAAKAAAAVlA4IDQAAAA0AQCdASoCAAIAAAAmJaAAA3AA/ukiH//3nz//ufP/+58/6M///yn7//I4//8jj/5QIAAA");
+        let decoded = decode_with_pure_rust_webp(&webp, &[0, 1]).expect("decode animated WebP");
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(
+            decoded
+                .iter()
+                .map(|frame| frame.source_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert!(decoded
+            .iter()
+            .all(|frame| frame.width == 2 && frame.height == 2));
+        assert!(decoded.iter().all(|frame| frame.rgb.len() == 2 * 2 * 3));
+
+        let mut static_webp = Vec::new();
+        image_webp::WebPEncoder::new(&mut static_webp)
+            .encode(
+                &[255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255],
+                2,
+                2,
+                image_webp::ColorType::Rgb8,
+            )
+            .expect("encode static WebP fixture");
+        assert!(decode_with_pure_rust_webp(&static_webp, &[0]).is_ok());
+    }
+
     #[cfg(any())]
     #[test]
     fn windows_wic_decodes_jpeg_and_animated_gif_and_webp() {
@@ -729,7 +853,6 @@ mod tests {
         assert_eq!(webp_result.frames.len(), 2);
     }
 
-    #[cfg(windows)]
     fn decode_base64(value: &str) -> Vec<u8> {
         let mut output = Vec::new();
         let mut accumulator = 0_u32;

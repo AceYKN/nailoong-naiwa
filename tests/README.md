@@ -8,3 +8,7 @@ the Tauri command bridge, the reference bank, and the fail-closed QQ adapter.
 The release evidence and its current limitations are recorded in
 `docs/ACCEPTANCE_MATRIX.md`; the test corpus must remain separate from the
 reference images shipped with the application.
+
+The executable frozen-corpus gate is documented in
+`tools/validation/README.md`. It is intentionally opt-in and local-only; an
+unreviewed QQ cache must not be treated as truth-labelled validation material.

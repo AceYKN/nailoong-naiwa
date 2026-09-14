@@ -3,6 +3,7 @@ node_modules/
 dist/
 *.local
 .vite/
+.playwright-cli/
 
 # Tauri / Rust
 target/
