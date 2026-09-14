@@ -12,11 +12,31 @@ param(
     [Parameter(Mandatory = $true)]
     [string[]]$NaiwaFrogReference,
 
-    [string]$OpenCvDir = $env:OPENCV_DIR,
-    [string]$LlvmBin = $env:LIBCLANG_PATH
+    [string]$OpenCvDir,
+    [string]$LlvmBin
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Import-UserEnvironmentValue([string]$Name) {
+    $processValue = [Environment]::GetEnvironmentVariable($Name, 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+        return $processValue
+    }
+    $userValue = [Environment]::GetEnvironmentVariable($Name, 'User')
+    if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+        [Environment]::SetEnvironmentVariable($Name, $userValue, 'Process')
+        return $userValue
+    }
+    return $null
+}
+
+if ([string]::IsNullOrWhiteSpace($OpenCvDir)) {
+    $OpenCvDir = Import-UserEnvironmentValue 'OPENCV_DIR'
+}
+if ([string]::IsNullOrWhiteSpace($LlvmBin)) {
+    $LlvmBin = Import-UserEnvironmentValue 'LIBCLANG_PATH'
+}
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $gitStatus = (& git -C $repoRoot status --porcelain | Out-String).Trim()
