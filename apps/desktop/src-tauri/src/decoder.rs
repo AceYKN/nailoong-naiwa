@@ -140,6 +140,9 @@ pub fn sample_indices(frame_count: u32, max_sample_frames: u32) -> Vec<u32> {
     if frame_count == 0 || max_sample_frames == 0 {
         return Vec::new();
     }
+    if max_sample_frames == 1 {
+        return vec![0];
+    }
     if frame_count <= max_sample_frames {
         return (0..frame_count).collect();
     }
@@ -430,9 +433,23 @@ fn decode_with_pure_rust_webp(bytes: &[u8], wanted: &[u32]) -> Result<Vec<Decode
     if width == 0 || height == 0 {
         return Err("pure-Rust WebP decoder returned an empty image".to_owned());
     }
+    image_policy::validate_decoded_dimensions(width, height)?;
+    let bytes_per_pixel = if decoder.has_alpha() { 4 } else { 3 };
+    let expected_buffer_size = usize::try_from(width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(bytes_per_pixel))
+        .ok_or_else(|| "pure-Rust WebP frame buffer size overflows usize".to_owned())?;
     let buffer_size = decoder
         .output_buffer_size()
         .ok_or_else(|| "pure-Rust WebP frame buffer size overflow".to_owned())?;
+    if buffer_size != expected_buffer_size {
+        return Err("pure-Rust WebP decoder returned an inconsistent frame buffer size".to_owned());
+    }
     let has_alpha = decoder.has_alpha();
     let mut buffer = vec![0_u8; buffer_size];
     let mut decoded = Vec::with_capacity(wanted.len());
@@ -733,6 +750,12 @@ mod tests {
             sample_indices(120, 12),
             vec![0, 11, 22, 32, 43, 54, 65, 76, 87, 97, 108, 119]
         );
+    }
+
+    #[test]
+    fn samples_the_first_frame_when_only_one_frame_is_requested() {
+        assert_eq!(sample_indices(1, 1), vec![0]);
+        assert_eq!(sample_indices(12, 1), vec![0]);
     }
 
     #[test]
