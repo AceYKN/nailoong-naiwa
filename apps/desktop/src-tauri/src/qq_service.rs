@@ -59,7 +59,7 @@ fn auto_recall_available_for_database(
                     &engine_fingerprint,
                     recall_threshold,
                 )
-            });
+            })
     }
     #[cfg(not(feature = "opencv-backend"))]
     {
