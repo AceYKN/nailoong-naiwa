@@ -4,6 +4,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$preflight = Join-Path $PSScriptRoot 'check-opencv-env.ps1'
+& $preflight -RequireRuntime
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $desktopRoot = Join-Path $repositoryRoot "apps\desktop\src-tauri"
 $targetRoot = if ($env:CARGO_TARGET_DIR) {

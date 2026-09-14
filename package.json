@@ -8,6 +8,7 @@
     "build": "pnpm --filter @nlnf/desktop build",
     "typecheck": "pnpm --filter @nlnf/desktop typecheck",
     "tauri:dev": "pnpm --filter @nlnf/desktop tauri:dev",
+    "tauri:doctor:opencv": "pnpm --filter @nlnf/desktop tauri:doctor:opencv",
     "tauri:dev:opencv": "pnpm --filter @nlnf/desktop tauri:dev:opencv",
     "tauri:build": "pnpm --filter @nlnf/desktop tauri:build",
     "tauri:build:opencv": "pnpm --filter @nlnf/desktop tauri:build:opencv"
