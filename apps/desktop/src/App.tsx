@@ -34,6 +34,7 @@ const MAX_WIDTH = 8192;
 const MAX_HEIGHT = 8192;
 const MAX_PIXELS = 50_000_000;
 const MAX_QUEUE_SIZE = 120;
+const MAX_REFERENCES_PER_CLASS = 10;
 
 const fallbackQqStatus: QqStatus = {
   connected: false,
@@ -417,29 +418,49 @@ function App() {
     void addFiles(Array.from(event.dataTransfer.files));
   }, [addFiles]);
 
-  const handleReferenceFile = useCallback(async (referenceClass: ReferenceClass, file: File | undefined) => {
-    if (!file) return;
+  const handleReferenceFiles = useCallback(async (referenceClass: ReferenceClass, files: File[]) => {
+    if (files.length === 0) return;
     setReferenceError(null);
     setNotice(null);
     if (!isTauriRuntime()) {
       setReferenceError("浏览器预览不能写入本地参考库，请在 Tauri 桌面程序中运行");
       return;
     }
-    if (!isAccepted(file)) {
-      setReferenceError("参考图必须是 PNG、JPEG、WebP 或 GIF");
+    const accepted = files.filter(isAccepted);
+    const rejectedCount = files.length - accepted.length;
+    const remainingSlots = Math.max(0, MAX_REFERENCES_PER_CLASS - referencesByClass[referenceClass].length);
+    if (remainingSlots === 0) {
+      setReferenceError(`${referenceClassLabel(referenceClass)}参考图已达到上限 ${MAX_REFERENCES_PER_CLASS} 张`);
       return;
     }
-    setAddingClass(referenceClass);
-    try {
-      await addReference(referenceClass, new Uint8Array(await file.arrayBuffer()));
-      await refreshAppState();
-      setNotice(`${referenceClassLabel(referenceClass)}参考图已加入，新的参考库版本已生效`);
-    } catch (error) {
-      setReferenceError(errorText(error));
-    } finally {
-      setAddingClass(null);
+    const selected = accepted.slice(0, remainingSlots);
+    const issues: string[] = [];
+    if (rejectedCount > 0) issues.push(`${rejectedCount} 个文件不是支持的图片格式`);
+    if (accepted.length > selected.length) {
+      issues.push(`本次只写入剩余 ${remainingSlots} 个参考图名额`);
     }
-  }, [refreshAppState]);
+
+    setAddingClass(referenceClass);
+    let addedCount = 0;
+    for (const file of selected) {
+      try {
+        await addReference(referenceClass, new Uint8Array(await file.arrayBuffer()));
+        addedCount += 1;
+      } catch (error) {
+        issues.push(`${file.name}: ${errorText(error)}`);
+      }
+    }
+    try {
+      await refreshAppState();
+    } catch (error) {
+      issues.push(`参考库刷新失败：${errorText(error)}`);
+    }
+    if (addedCount > 0) {
+      setNotice(`${referenceClassLabel(referenceClass)}参考图已加入 ${addedCount} 张，新的参考库版本已生效`);
+    }
+    setReferenceError(issues.length > 0 ? issues.join("；") : null);
+    setAddingClass(null);
+  }, [referencesByClass, refreshAppState]);
 
   const handleRemoveReference = useCallback(async (reference: ReferenceInfo) => {
     if (!window.confirm(`确认删除参考图 ${reference.id}？`)) return;
@@ -525,7 +546,7 @@ function App() {
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
-              void handleReferenceFile("NAILONG", file);
+              void handleReferenceFiles("NAILONG", file ? [file] : []);
             }}
           />
           <input
@@ -536,7 +557,7 @@ function App() {
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
-              void handleReferenceFile("NAIWA_FROG", file);
+              void handleReferenceFiles("NAIWA_FROG", file ? [file] : []);
             }}
           />
           <div className="onboarding-steps">
@@ -673,15 +694,16 @@ function App() {
                 ref={inputRef}
                 hidden
                 type="file"
+                multiple
                 accept={ACCEPTED_TYPES.join(",")}
                 onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
+                  const files = Array.from(event.currentTarget.files ?? []);
                   event.currentTarget.value = "";
-                  void handleReferenceFile(referenceClass, file);
+                  void handleReferenceFiles(referenceClass, files);
                 }}
               />
-              <button type="button" className="secondary-button" onClick={() => inputRef.current?.click()} disabled={group.length >= 10 || addingClass !== null}>
-                {addingClass === referenceClass ? "写入中…" : "添加参考图"}
+              <button type="button" className="secondary-button" onClick={() => inputRef.current?.click()} disabled={group.length >= MAX_REFERENCES_PER_CLASS || addingClass !== null}>
+                {addingClass === referenceClass ? "写入中…" : "添加参考图（可多选）"}
               </button>
               {group.length === 0 ? (
                 <div className="empty-state reference-empty"><p>尚未添加参考图</p><small>One-shot 可以直接开始；建议逐步补充到 3–5 张。</small></div>
