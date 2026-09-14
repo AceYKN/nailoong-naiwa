@@ -26,8 +26,10 @@ must contain `libclang.dll`; `CLANG_PATH` must point to an actual `clang.exe`.
 The `tauri:dev:opencv` and `tauri:build:opencv` package wrappers also import
 missing values from the Windows user environment and add the native runtime
 directories to the child process, so they can recover from an older shell.
-Manual `cargo` commands still require a refreshed shell or explicit process
-variables.
+Before either OpenCV bundle command, the wrapper stages the pinned release DLL
+beside `target/release` because Tauri resolves bundle resources before it
+starts the final packaging step. Manual `cargo` commands still require a
+refreshed shell or explicit process variables.
 
 Run the preflight before starting the native Tauri path:
 

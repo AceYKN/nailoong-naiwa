@@ -51,6 +51,8 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 
+$stageRuntime = Join-Path $PSScriptRoot 'stage-opencv-runtime.ps1'
+
 $clangDirectory = if ([string]::IsNullOrWhiteSpace($env:CLANG_PATH)) {
   $null
 } else {
@@ -84,9 +86,17 @@ try {
       & pnpm exec tauri dev --config src-tauri/tauri.e2e.conf.json --features opencv-backend
     }
     'build' {
+      & pwsh -NoProfile -ExecutionPolicy Bypass -File $stageRuntime
+      if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+      }
       & pnpm exec tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend --bundles nsis --no-sign --ci
     }
     'build-recall' {
+      & pwsh -NoProfile -ExecutionPolicy Bypass -File $stageRuntime
+      if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+      }
       & pnpm exec tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend,auto-recall-release --bundles nsis --no-sign --ci
     }
   }
