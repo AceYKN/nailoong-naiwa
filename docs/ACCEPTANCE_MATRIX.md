@@ -39,7 +39,7 @@
 | --- | --- |
 | OpenCV 原生环境 | 已在用户态工具目录完成一次 OpenCV 4.13.0 + Clang 验证；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器仍需独立验证。 |
 | `OTHER` / `UNKNOWN` | 已区分：低分且两类均无几何 inlier 返回 `OTHER`；模糊或有部分证据但不足以确定时返回 `UNKNOWN`。仍需真实负例冻结集校准边界。 |
-| 公开 GitHub | 已创建并推送公开仓库；最新安全门禁提交需在本次同步后以远端 SHA 和 GitHub CI 结果复核，不能仅以本地提交状态代替发布证据。 |
+| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；本次安全门禁提交已推送到 `main`，远端复核 SHA 为 `9d2c2644bb87302d819a26db67936ad28d93788f`，GitHub CI run `34807346965` 的仓库卫生、前端、Rust Ubuntu、Rust Windows 和 Windows Tauri 打包均成功。 |
 | DeepSeek key | 不再调用或上传图片；此前暴露过旧 key，用户应在服务商侧撤销。新 key 只要仍在本机用户环境变量中，也建议完成迁移后清除。 |
 
 ## 重跑核心验证
