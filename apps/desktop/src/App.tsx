@@ -51,9 +51,9 @@ const fallbackAppInfo: AppInfo = {
   productName: "NLNF Classifier",
   appVersion: "0.1.0",
   phase: "Phase 4 — Reference matching",
-  visionBackend: "opencv-sift-unavailable",
+  visionBackend: "opencv-sift-akaze-unavailable",
   visionAvailable: false,
-  visionMessage: "请在 Tauri 桌面程序中编译并启用 OpenCV SIFT 后端",
+  visionMessage: "请在 Tauri 桌面程序中编译并启用 OpenCV SIFT/AKAZE 后端",
   referenceSetVersion: 1,
   nailongReferenceCount: 0,
   naiwaFrogReferenceCount: 0,
@@ -525,7 +525,7 @@ function App() {
           <p className="eyebrow">TRAINING-FREE VISION</p>
           <h1>奶龙 / 奶蛙识别</h1>
           <p className="hero-copy">
-            使用本地参考图与 SIFT 特征匹配识别图片，不采集训练数据、不上传图片，分类过程完全离线。
+            使用本地参考图与 SIFT（无可用描述子时回退 AKAZE）特征匹配识别图片，不采集训练数据、不上传图片，分类过程完全离线。
           </p>
         </div>
         <div className="status-pill" data-status={appInfo.visionAvailable ? "ready" : "error"}>
@@ -634,7 +634,7 @@ function App() {
                     {image.debugLoading ? "生成特征图…" : "显示匹配特征点"}
                   </button>
                 )}
-                {image.debugPreviewUrl && <img className="debug-preview" src={image.debugPreviewUrl} alt="SIFT 与 RANSAC 匹配特征点" />}
+                {image.debugPreviewUrl && <img className="debug-preview" src={image.debugPreviewUrl} alt="SIFT/AKAZE 与 RANSAC 匹配特征点" />}
                 {image.debugError && <div className="card-error">特征图生成失败：{image.debugError}</div>}
                 {image.classificationError && <div className="card-error">{image.classificationError}</div>}
                 <div className="card-actions">
@@ -852,7 +852,7 @@ function App() {
             <div><dt>奶龙</dt><dd>{appInfo.nailongReferenceCount} / 10 张</dd></div>
             <div><dt>奶蛙</dt><dd>{appInfo.naiwaFrogReferenceCount} / 10 张</dd></div>
             <div><dt>版本</dt><dd>{appInfo.referenceSetVersion}</dd></div>
-            <div><dt>策略</dt><dd>pHash 粗筛 + SIFT + Lowe Ratio + RANSAC</dd></div>
+            <div><dt>策略</dt><dd>pHash 粗筛 + SIFT（回退 AKAZE）+ Lowe Ratio + RANSAC</dd></div>
           </dl>
         </section>
       </div>

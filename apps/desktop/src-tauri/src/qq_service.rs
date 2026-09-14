@@ -849,7 +849,7 @@ fn classify_bytes_for_qq(app: &AppHandle, bytes: &[u8]) -> Result<Classification
 
 #[cfg(not(feature = "opencv-backend"))]
 fn classify_bytes_for_qq(_app: &AppHandle, _bytes: &[u8]) -> Result<ClassificationResult, String> {
-    Err("OpenCV SIFT backend is not compiled".to_owned())
+    Err("OpenCV SIFT/AKAZE backend is not compiled".to_owned())
 }
 
 #[cfg(test)]

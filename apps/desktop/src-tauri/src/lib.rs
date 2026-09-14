@@ -230,7 +230,7 @@ pub(crate) fn classify_image_bytes(
             naiwa_frog_score: f64::from(result.naiwa_frog_score),
             confidence_level: confidence_level_name(result.confidence_level).to_owned(),
             classification_json,
-            source: "opencv-sift".to_owned(),
+            source: "opencv-sift-akaze".to_owned(),
             created_at: current_timestamp(),
         }) {
             eprintln!("prediction cache write skipped: {error}");
@@ -242,7 +242,7 @@ pub(crate) fn classify_image_bytes(
     {
         let _ = (app, decoded);
         Err(
-            "OpenCV SIFT backend is not compiled; refusing to generate a classification result"
+            "OpenCV SIFT/AKAZE backend is not compiled; refusing to generate a classification result"
                 .to_owned(),
         )
     }
@@ -308,7 +308,7 @@ fn debug_match_image(
     #[cfg(not(feature = "opencv-backend"))]
     {
         let _ = (app, bytes, reference_id);
-        Err("OpenCV SIFT backend is not compiled; debug matching is unavailable".to_owned())
+        Err("OpenCV SIFT/AKAZE backend is not compiled; debug matching is unavailable".to_owned())
     }
 }
 
@@ -566,13 +566,13 @@ fn reference_class_name(class: vision::ReferenceClass) -> &'static str {
 
 #[cfg(feature = "opencv-backend")]
 fn vision_backend_status() -> (&'static str, bool, &'static str) {
-    ("opencv-sift", true, "OpenCV SIFT 后端已编译")
+    ("opencv-sift-akaze", true, "OpenCV SIFT/AKAZE 后端已编译")
 }
 
 #[cfg(not(feature = "opencv-backend"))]
 fn vision_backend_status() -> (&'static str, bool, &'static str) {
     (
-        "opencv-sift-unavailable",
+        "opencv-sift-akaze-unavailable",
         false,
         "未编译 OpenCV 后端；当前不会生成识别结果",
     )

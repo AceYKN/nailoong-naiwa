@@ -13,7 +13,7 @@
 | SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。旧 v4 缓存迁移为无指纹条目并自动失效。 |
 | 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败。浏览器预览检查无 console error。 |
 | 参考图初始化向导 | 隔离 Tauri/WebView 首次运行显示奶龙/奶蛙两步向导；从本地 QQ 缓存各选择 1 张后分别写入 Reference Bank、刷新版本并显示完成状态，识别页向导消失。 |
-| 桌面窗口 E2E | 使用隔离标识符 `com.aceykn.nlnfclassifier.e2e` 启动真实 Tauri/WebView 窗口；从 D 盘 QQ 缓存添加奶龙、奶蛙各 1 张，参考库版本递增、各显示 1/10；上传奶龙、奶蛙和负例各 1 张并点击“开始匹配”，结果分别为奶龙 98%、奶蛙 98%、其他。动画参考图 pHash 采样策略已统一，调试按钮仍可生成 `SIFT 与 RANSAC 匹配特征点` PNG。跨盘保存错误已修复，源文件 SHA-256 与 manifest 保持一致。 |
+| 桌面窗口 E2E | 使用隔离标识符 `com.aceykn.nlnfclassifier.e2e` 启动真实 Tauri/WebView 窗口；从 D 盘 QQ 缓存添加奶龙、奶蛙各 1 张，参考库版本递增、各显示 1/10；上传奶龙、奶蛙和负例各 1 张并点击“开始匹配”，结果分别为奶龙 98%、奶蛙 98%、其他。动画参考图 pHash 采样策略已统一，调试按钮仍可生成 `SIFT/AKAZE 与 RANSAC 匹配特征点` PNG。跨盘保存错误已修复，源文件 SHA-256 与 manifest 保持一致。 |
 | QQ OneBot 桌面 E2E | 使用本机 mock OneBot API 返回群组，真实 Tauri 窗口连接 API 与反向事件监听端口；群组可切换到 OBSERVE，发送带图片的反向事件后收到 HTTP 200 ACK，后台通过 `get_image` 下载并完成本地分类，UI 显示事件，SQLite `moderation_log` 持久化并可回读。该测试未启用撤回。 |
 | QQ Mock 安全路径 | `qq.rs` 单测覆盖重复消息 at-most-once、Adapter 断线不撤回、图片获取/分类失败 fail-closed，以及撤回失败记录且不重试。 |
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
