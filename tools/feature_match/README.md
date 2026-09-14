@@ -14,9 +14,15 @@ $env:OPENCV_LINK_PATHS = "$env:OPENCV_DIR\x64\vc16\lib"
 $env:OPENCV_WORLD_NAME = "opencv_world4130"
 $env:OPENCV_LINK_LIBS = $env:OPENCV_WORLD_NAME
 $env:LIBCLANG_PATH = "C:\path\to\llvm\bin"
-$env:CLANG_PATH = "$env:LIBCLANG_PATH\clang.exe"
+# CLANG_PATH may point to clang.exe in a separate LLVM installation.
+$env:CLANG_PATH = "C:\path\to\llvm\bin\clang.exe"
 $env:Path = "$env:OPENCV_DIR\x64\vc16\bin;$env:LIBCLANG_PATH;$env:Path"
 ```
+
+If these values were written to the Windows user environment, close the
+existing PowerShell and open a new one before running the commands below.
+Already-running shells keep their original environment block. `LIBCLANG_PATH`
+must contain `libclang.dll`; `CLANG_PATH` must point to an actual `clang.exe`.
 
 Run the preflight before starting the native Tauri path:
 
