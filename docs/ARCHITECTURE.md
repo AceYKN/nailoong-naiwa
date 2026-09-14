@@ -7,7 +7,7 @@ React UI
 Rust desktop core
    ├── bounded image decode and frame sampling
    ├── pHash coarse filter
-   ├── OpenCV SIFT feature extraction (AKAZE fallback pending native support)
+   ├── OpenCV SIFT feature extraction (AKAZE fallback when SIFT has no usable descriptors)
    ├── BF/FLANN + Lowe Ratio + RANSAC Homography
    ├── deterministic scoring and DecisionEngine
    ├── ReferenceManager + versioned SQLite cache
@@ -31,7 +31,7 @@ The minimum MVP is one reference per class. The data model must remain plural so
 1. Validate bytes, dimensions, pixel count and animation limits before decode.
 2. Decode JPEG, PNG, WebP or GIF; resize while preserving aspect ratio and cap the working dimension.
 3. Compute pHash for fast same/near-image candidates.
-4. Extract SIFT descriptors. AKAZE remains a planned fallback until the Windows Rust binding/runtime combination is verified.
+4. Extract SIFT descriptors. If SIFT produces no usable keypoints/descriptors, fall back to OpenCV AKAZE. The descriptor kind is stored with the result and cache, and matching selects L2 for SIFT or Hamming for AKAZE.
 5. Compare query descriptors with each eligible reference using BF/FLANN KNN with `k=2`.
 6. Apply Lowe ratio filtering, then RANSAC Homography.
 7. Store `MatchResult` including good matches, inliers, inlier ratio, spatial coverage, reprojection error and pHash distance.
