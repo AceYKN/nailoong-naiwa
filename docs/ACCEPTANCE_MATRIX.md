@@ -19,7 +19,7 @@
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
 | 输入边界 | Rust 侧保留 25 MiB、8192×8192、5000 万像素、500 帧，以及 PNG/JPEG/GIF/WebP 的受限检查。 |
 | v1 链路清理 | 数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；用户 QQ 缓存图片未被删除。 |
-| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；当前公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 对应 CI run `34856737853` 六项全部通过，隔离暂存副本与 `origin/main` 已同步。 |
+| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；当前公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 对应 CI run `34856737853` 六项全部通过，隔离暂存副本与 `origin/main` 已同步；后续成功的 OpenCV CI run 还会上传 14 天有效的验证 artifact。 |
 
 ## 已实现但尚未正式验收
 

@@ -57,6 +57,10 @@ cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- 
 
 OpenCV 是生产视觉后端且默认 feature-gated。Windows 原生依赖、环境变量和验证命令见 [`tools/feature_match/README.md`](tools/feature_match/README.md)；未配置它时仍可运行跨平台的 fail-closed 核心和 UI 检查。
 
+## 获取 Windows 验证包
+
+公开仓库的 GitHub Actions `CI` 在 `rust-windows-opencv` 成功后会上传短期 artifact：包含已经检查过的 NSIS 安装包、桌面 exe 和匹配的 `opencv_world4130.dll`。在仓库的 Actions 页面打开最新成功的 CI run，在 Artifacts 下载 `nlnf-windows-opencv-<commit>`；不需要在本机安装 Python OpenCV、C++ OpenCV 或 LLVM。artifact 保留 14 天，正式 Auto Recall 仍不能仅凭该包启用。
+
 ## 运行原则
 
 1. 一类至少 1 张、最多 10 张参考图；参考图库支持一次多选导入，超出剩余名额的文件会被忽略，新增参考图立即递增 `reference_set_version`。
