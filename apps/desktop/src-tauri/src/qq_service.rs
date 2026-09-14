@@ -49,7 +49,7 @@ fn auto_recall_available_for_database(
         let descriptor_fingerprint = crate::vision_opencv::descriptor_fingerprint(config);
         let engine_fingerprint =
             crate::vision_opencv::engine_fingerprint(config, image_policy::MAX_SAMPLE_FRAMES);
-        return database
+        database
             .verified_reference_set_hash()
             .ok()
             .is_some_and(|hash| {
