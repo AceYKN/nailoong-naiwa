@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $preflight = Join-Path $PSScriptRoot 'check-opencv-env.ps1'
 & $preflight -RequireRuntime
-if ($LASTEXITCODE -ne 0) {
-  exit $LASTEXITCODE
+if (-not $?) {
+  exit 1
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
