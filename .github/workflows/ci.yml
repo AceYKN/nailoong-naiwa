@@ -107,7 +107,8 @@ jobs:
     env:
       OPENCV_VERSION: 4.13.0
       OPENCV_SHA256: f0e98c302464d6860777a7015065e11b9b271b5394e6ba92663f0cf1fc303f2c
-      LLVM_VERSION: 18.1.8
+      LLVM_VERSION: 20.1.8
+      LLVM_SHA256: 3197846a2b19063687dd56e93e34cd941e3548d907f23a6131571321bdf9fe7b
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -151,6 +152,10 @@ jobs:
           Invoke-WebRequest `
             -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.exe" `
             -OutFile $llvmInstaller
+          $llvmHash = (Get-FileHash -LiteralPath $llvmInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($llvmHash -ne $env:LLVM_SHA256) {
+            throw "LLVM SHA-256 mismatch: expected $env:LLVM_SHA256, got $llvmHash"
+          }
           $llvmDir = Join-Path $nativeRoot 'llvm'
           $installer = Start-Process -FilePath $llvmInstaller -ArgumentList @('/S', "/D=$llvmDir") -Wait -PassThru
           if ($installer.ExitCode -ne 0) {
