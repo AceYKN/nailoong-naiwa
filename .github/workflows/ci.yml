@@ -98,6 +98,88 @@ jobs:
       - run: cargo test --all-targets
       - run: cargo clippy --all-targets -- -D warnings
 
+  rust-windows-opencv:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    env:
+      OPENCV_VERSION: 4.13.0
+      OPENCV_SHA256: f0e98c302464d6860777a7015065e11b9b271b5394e6ba92663f0cf1fc303f2c
+      LLVM_VERSION: 18.1.8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Download and configure pinned native dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nativeRoot = Join-Path $env:RUNNER_TEMP 'nlnf-native'
+          New-Item -ItemType Directory -Path $nativeRoot -Force | Out-Null
+
+          $opencvArchive = Join-Path $nativeRoot "opencv-$env:OPENCV_VERSION-windows.exe"
+          Invoke-WebRequest `
+            -Uri "https://github.com/opencv/opencv/releases/download/$env:OPENCV_VERSION/opencv-$env:OPENCV_VERSION-windows.exe" `
+            -OutFile $opencvArchive
+          $opencvHash = (Get-FileHash -LiteralPath $opencvArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($opencvHash -ne $env:OPENCV_SHA256) {
+            throw "OpenCV SHA-256 mismatch: expected $env:OPENCV_SHA256, got $opencvHash"
+          }
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if ([string]::IsNullOrWhiteSpace($sevenZip)) {
+            $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          }
+          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "7-Zip was not found on the hosted runner: $sevenZip"
+          }
+          $opencvExtractRoot = Join-Path $nativeRoot 'opencv-extract'
+          & $sevenZip x $opencvArchive "-o$opencvExtractRoot" -y | Out-Host
+          $opencvDir = Join-Path $opencvExtractRoot 'opencv\build'
+          $opencvHeader = Join-Path $opencvDir 'include\opencv2\core.hpp'
+          $opencvLibrary = Join-Path $opencvDir 'x64\vc16\lib\opencv_world4130.lib'
+          if (-not (Test-Path -LiteralPath $opencvHeader -PathType Leaf)) {
+            throw "Pinned OpenCV headers were not found under $opencvDir"
+          }
+          if (-not (Test-Path -LiteralPath $opencvLibrary -PathType Leaf)) {
+            throw "Pinned OpenCV import library was not found: $opencvLibrary"
+          }
+
+          $llvmInstaller = Join-Path $nativeRoot "LLVM-$env:LLVM_VERSION-win64.exe"
+          Invoke-WebRequest `
+            -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/LLVM-$env:LLVM_VERSION-win64.exe" `
+            -OutFile $llvmInstaller
+          $llvmDir = Join-Path $nativeRoot 'llvm'
+          $installer = Start-Process -FilePath $llvmInstaller -ArgumentList @('/S', "/D=$llvmDir") -Wait -PassThru
+          if ($installer.ExitCode -ne 0) {
+            throw "Pinned LLVM installer failed with exit code $($installer.ExitCode)"
+          }
+          $llvmBin = Join-Path $llvmDir 'bin'
+          $libclang = Join-Path $llvmBin 'libclang.dll'
+          if (-not (Test-Path -LiteralPath $libclang -PathType Leaf)) {
+            throw "Pinned LLVM libclang was not found: $libclang"
+          }
+
+          @(
+            "OPENCV_DIR=$opencvDir"
+            "OPENCV_INCLUDE_PATHS=$(Join-Path $opencvDir 'include')"
+            "OPENCV_LINK_PATHS=$(Join-Path $opencvDir 'x64\vc16\lib')"
+            'OPENCV_WORLD_NAME=opencv_world4130'
+            'OPENCV_LINK_LIBS=opencv_world4130'
+            "LIBCLANG_PATH=$llvmBin"
+            "CLANG_PATH=$(Join-Path $llvmBin 'clang.exe')"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          @(
+            (Join-Path $opencvDir 'x64\vc16\bin')
+            $llvmBin
+          ) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Output "OpenCV $env:OPENCV_VERSION and LLVM $env:LLVM_VERSION configured."
+      - run: cargo check --features opencv-backend
+      - run: cargo test --features opencv-backend --all-targets -- --test-threads=1
+      - run: cargo clippy --features opencv-backend --all-targets -- -D warnings
+
   desktop-windows-build:
     runs-on: windows-latest
     steps:
