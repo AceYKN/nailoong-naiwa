@@ -8,7 +8,7 @@
 | --- | --- |
 | v2 方向 | `spec-v2.md` 已将产品定义为零训练、多参考图、传统特征匹配；DeepSeek、训练、ONNX 不属于运行依赖。 |
 | Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：67 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，并将旧数据库中的该模式降级为 `OBSERVE`；release manifest 也拒绝重复路径。 |
-| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；本机 OpenCV feature 的 79 项库测试与 clippy 通过；release feature 在带当前 checkout SHA 的结构合法测试凭证组合下 79 项库测试与 clippy 通过，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。 |
+| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；本机 OpenCV feature 的 79 项库测试与 clippy 通过；release feature 在带当前 checkout SHA 的结构合法测试凭证组合下 79 项库测试与 clippy 通过，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
 | ReferenceManager | 本地单元测试验证 1~10 张上限、源文件不修改、SHA-256/pHash 元数据与原子复制。 |
 | SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。旧 v4 缓存迁移为无指纹条目并自动失效。 |
 | 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败。浏览器预览检查无 console error。 |
@@ -31,7 +31,7 @@
 | 动图 | Rust decoder 已有采样边界，视觉层有多帧严格奶蛙门槛；真实 GIF smoke 已验证解码和性能，但仍缺真实奶蛙动画正例、Animated WebP 和完整 QQ 场景证据。 |
 | 负例与鲁棒性 | 已有缩放、旋转、裁剪、JPEG 压缩、局部遮挡、文字覆盖、模糊、无关纹理拒绝、RANSAC 误匹配、低 inlier 高分拒绝、色彩辅助惩罚单测；同一份本地 304 条 manifest 重新验证后 `false_target_label=0`、`false_recall=0`，但仍缺真实角色冻结负例和更广泛正例覆盖。 |
 | QQ | OneBot 11 已接入桌面后台 worker：仅允许 loopback、Token 只在内存、反向事件有界读取、群模式持久化、Observe 日志持久化/回读；本机 mock OneBot E2E 已通过。普通构建现在硬性拒绝 `AUTO_RECALL`，带 release 特性的构建仍必须先通过冻结验证门禁；真实 QQ/OneBot 账号和人工 Observe 运行仍未验证，因此 AUTO_RECALL 仍不作为发布能力开放。 |
-| 冻结验证门禁 | `tools/validation/` 提供不复制图片的 JSONL manifest 生成器和本地 release-gate runner；Rust 门禁会校验 100/100/1000 类别数量、50 个真实 GIF、文件完整性、目标类漏检、目标类互相误判、负例误检和严格 false recall。通过后生成绑定 Git revision、两张精确参考图字节和阈值指纹的 certificate；当前尚未提供满足门槛且 truth-reviewed 的冻结材料。 |
+| 冻结验证门禁 | `tools/validation/` 提供不复制图片的 JSONL manifest 生成器和本地 release-gate runner；Rust 门禁会校验 100/100/1000 类别数量、50 个真实 GIF、文件完整性、目标类漏检、目标类互相误判、负例误检和严格 false recall。每类可传入 1~10 张参考图；通过后生成绑定 Git revision、完整 Reference Bank 精确字节、manifest、视觉指纹、精确 OpenCV runtime DLL 和阈值指纹的 certificate；当前尚未提供满足门槛且 truth-reviewed 的冻结材料。 |
 
 ## 明确未完成
 

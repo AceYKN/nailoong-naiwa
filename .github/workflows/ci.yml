@@ -100,7 +100,7 @@ jobs:
 
   rust-windows-opencv:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: apps/desktop/src-tauri
@@ -166,6 +166,11 @@ jobs:
           if (-not (Test-Path -LiteralPath $libclang -PathType Leaf)) {
             throw "Pinned LLVM libclang was not found: $libclang"
           }
+          $opencvRuntime = Join-Path $opencvDir 'x64\vc16\bin\opencv_world4130.dll'
+          if (-not (Test-Path -LiteralPath $opencvRuntime -PathType Leaf)) {
+            throw "Pinned OpenCV runtime DLL was not found: $opencvRuntime"
+          }
+          $opencvRuntimeHash = (Get-FileHash -LiteralPath $opencvRuntime -Algorithm SHA256).Hash.ToLowerInvariant()
 
           @(
             "OPENCV_DIR=$opencvDir"
@@ -173,8 +178,11 @@ jobs:
             "OPENCV_LINK_PATHS=$(Join-Path $opencvDir 'x64\vc16\lib')"
             'OPENCV_WORLD_NAME=opencv_world4130'
             'OPENCV_LINK_LIBS=opencv_world4130'
+            "OPENCV_RUNTIME_DIR=$(Join-Path $opencvDir 'x64\vc16\bin')"
             "LIBCLANG_PATH=$llvmBin"
             "CLANG_PATH=$(Join-Path $llvmBin 'clang.exe')"
+            'NLNF_OPENCV_RUNTIME_NAME=opencv_world4130'
+            "NLNF_OPENCV_RUNTIME_SHA256=$opencvRuntimeHash"
           ) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           @(
             (Join-Path $opencvDir 'x64\vc16\bin')
@@ -184,6 +192,59 @@ jobs:
       - run: cargo check --features opencv-backend
       - run: cargo test --features opencv-backend --all-targets -- --test-threads=1
       - run: cargo clippy --features opencv-backend --all-targets -- -D warnings
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install desktop dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+      - name: Build and inspect the OpenCV NSIS bundle
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm --dir apps/desktop tauri:build:opencv
+
+          $releaseDirectory = Join-Path $env:GITHUB_WORKSPACE 'apps\desktop\src-tauri\target\release'
+          $releaseExecutable = Join-Path $releaseDirectory 'nlnf-desktop.exe'
+          $releaseRuntime = Join-Path $releaseDirectory 'opencv_world4130.dll'
+          if (-not (Test-Path -LiteralPath $releaseExecutable -PathType Leaf)) {
+            throw "OpenCV release executable was not produced: $releaseExecutable"
+          }
+          if (-not (Test-Path -LiteralPath $releaseRuntime -PathType Leaf)) {
+            throw "OpenCV release runtime was not staged: $releaseRuntime"
+          }
+          $releaseRuntimeHash = (Get-FileHash -LiteralPath $releaseRuntime -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($releaseRuntimeHash -ne $env:NLNF_OPENCV_RUNTIME_SHA256) {
+            throw "Staged OpenCV runtime SHA-256 mismatch: expected $env:NLNF_OPENCV_RUNTIME_SHA256, got $releaseRuntimeHash"
+          }
+
+          $nsisDirectory = Join-Path $releaseDirectory 'bundle\nsis'
+          $installer = Get-ChildItem -LiteralPath $nsisDirectory -Filter '*.exe' -File |
+            Where-Object { $_.Name -notlike 'uninstall*' } |
+            Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "OpenCV NSIS installer was not produced under $nsisDirectory"
+          }
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if ([string]::IsNullOrWhiteSpace($sevenZip)) {
+            $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          }
+          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "7-Zip was not found for NSIS resource inspection: $sevenZip"
+          }
+          $archiveListing = (& $sevenZip l $installer.FullName | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $archiveListing -notmatch 'nlnf-desktop\.exe') {
+            throw "The NSIS bundle does not contain nlnf-desktop.exe: $($installer.FullName)"
+          }
+          if ($archiveListing -notmatch 'opencv_world4130\.dll') {
+            throw "The NSIS bundle does not contain opencv_world4130.dll: $($installer.FullName)"
+          }
+          Write-Output "Verified $($installer.Name), nlnf-desktop.exe and opencv_world4130.dll (runtime SHA-256 $releaseRuntimeHash)."
 
   desktop-windows-build:
     runs-on: windows-latest

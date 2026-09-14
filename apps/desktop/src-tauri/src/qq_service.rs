@@ -40,12 +40,32 @@ fn auto_recall_available_for_database(
     token_configured: bool,
     recall_threshold: Option<f64>,
 ) -> bool {
-    token_configured
-        && auto_recall_available()
-        && database
+    if !token_configured || !auto_recall_available() {
+        return false;
+    }
+    #[cfg(feature = "opencv-backend")]
+    {
+        let config = crate::vision_opencv::OpenCvConfig::default();
+        let descriptor_fingerprint = crate::vision_opencv::descriptor_fingerprint(config);
+        let engine_fingerprint =
+            crate::vision_opencv::engine_fingerprint(config, image_policy::MAX_SAMPLE_FRAMES);
+        return database
             .verified_reference_set_hash()
             .ok()
-            .is_some_and(|hash| release::certificate_matches_reference_set(&hash, recall_threshold))
+            .is_some_and(|hash| {
+                release::certificate_matches_reference_set(
+                    &hash,
+                    &descriptor_fingerprint,
+                    &engine_fingerprint,
+                    recall_threshold,
+                )
+            });
+    }
+    #[cfg(not(feature = "opencv-backend"))]
+    {
+        let _ = (database, recall_threshold);
+        false
+    }
 }
 
 fn validate_requested_mode(mode: GroupMode) -> Result<(), String> {

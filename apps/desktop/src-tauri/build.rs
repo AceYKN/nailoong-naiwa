@@ -3,9 +3,23 @@ use std::{env, process::Command};
 fn main() {
     println!("cargo:rerun-if-env-changed=NLNF_VALIDATION_CERTIFICATE_JSON");
     println!("cargo:rerun-if-env-changed=NLNF_VALIDATION_GIT_SHA");
+    println!("cargo:rerun-if-env-changed=NLNF_OPENCV_RUNTIME_SHA256");
+    println!("cargo:rerun-if-env-changed=NLNF_OPENCV_RUNTIME_NAME");
     let checkout_git_sha = current_git_sha().ok();
     if let Some(git_sha) = &checkout_git_sha {
         println!("cargo:rustc-env=NLNF_BUILD_GIT_SHA={git_sha}");
+    }
+    if let Ok(runtime_sha256) = env::var("NLNF_OPENCV_RUNTIME_SHA256") {
+        let runtime_sha256 = runtime_sha256.trim();
+        if !runtime_sha256.is_empty() {
+            println!("cargo:rustc-env=NLNF_OPENCV_RUNTIME_SHA256={runtime_sha256}");
+        }
+    }
+    if let Ok(runtime_name) = env::var("NLNF_OPENCV_RUNTIME_NAME") {
+        let runtime_name = runtime_name.trim();
+        if !runtime_name.is_empty() {
+            println!("cargo:rustc-env=NLNF_OPENCV_RUNTIME_NAME={runtime_name}");
+        }
     }
     if env::var_os("CARGO_FEATURE_AUTO_RECALL_RELEASE").is_some() {
         let certificate = env::var("NLNF_VALIDATION_CERTIFICATE_JSON")

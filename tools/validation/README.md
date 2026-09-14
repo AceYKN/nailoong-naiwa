@@ -44,26 +44,32 @@ Run it after configuring the user-local OpenCV and Clang paths described in
 powershell -ExecutionPolicy Bypass -File tools/validation/run-release-gate.ps1 `
   -ValidationRoot D:\path\to\validation-root `
   -Manifest D:\path\to\validation-root\manifest.jsonl `
-  -NailongReference D:\path\to\nailong-reference.gif `
-  -NaiwaFrogReference D:\path\to\frog-reference.gif `
+  -NailongReference D:\path\to\nailong-reference-1.gif,D:\path\to\nailong-reference-2.png `
+  -NaiwaFrogReference D:\path\to\frog-reference-1.gif,D:\path\to\frog-reference-2.png `
   -OpenCvDir C:\path\to\opencv\build `
   -LlvmBin C:\path\to\llvm\bin
 ```
+
+`-NailongReference` and `-NaiwaFrogReference` each accept 1~10 paths. A
+single path is valid for the One-Shot MVP; comma-separated paths form the full
+class Reference Bank used by the certificate. Every supplied path must exist.
 
 Do not use unreviewed QQ-cache files as truth labels. A large cache count is
 not evidence of 100/100/1000 correct samples; the labels must be independently
 reviewed before enabling the gate. The runner requires a clean Git checkout and
 writes `validation-certificate.json` beside the manifest. That certificate
-binds the tested Git revision, the exact bytes of the two supplied reference
-images, the decision thresholds, the sample counts and the zero-false-recall
-result. Until this command passes on a frozen corpus, `AUTO_RECALL` remains
+binds the tested Git revision, the exact bytes of every supplied Reference
+Bank image, the manifest bytes, descriptor/engine fingerprints, the exact
+OpenCV runtime DLL name and SHA-256, the decision thresholds, the sample
+counts and the zero-false-recall result. Until this command passes on a frozen
+corpus, `AUTO_RECALL` remains
 disabled by the application policy.
 
 The runner validates the corpus with the OpenCV backend but does not enable the
 runtime release feature. Only after it exits successfully may a release build
 explicitly add `auto-recall-release` alongside `opencv-backend`. The release
-build must embed the generated certificate and use the same two reference
-images as its initial Reference Bank:
+build must embed the generated certificate and use the same complete Reference
+Bank as the validation gate:
 
 ```powershell
 $env:NLNF_VALIDATION_CERTIFICATE_JSON = [System.IO.File]::ReadAllText(

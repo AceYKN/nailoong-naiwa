@@ -34,7 +34,7 @@ pub const DEFAULT_RANSAC_REPROJECTION_THRESHOLD: f64 = 3.0;
 pub const DEFAULT_PHASH_SHORTCUT_DISTANCE: u32 = 4;
 const DESCRIPTOR_MAGIC: &[u8] = b"NLNF-DESC\0";
 const DESCRIPTOR_VERSION: u32 = 3;
-pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-ransac-v3";
+pub use crate::vision::VISION_PIPELINE_VERSION;
 const SHA256_HEX_LENGTH: usize = 64;
 const MAX_DESCRIPTOR_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SERIALIZED_KEYPOINTS: u32 = 100_000;
@@ -1671,21 +1671,54 @@ mod tests {
     }
 
     #[cfg(windows)]
+    fn reference_paths(variable: &str, legacy_variable: &str) -> Vec<std::path::PathBuf> {
+        std::env::var(variable)
+            .or_else(|_| std::env::var(legacy_variable))
+            .unwrap_or_default()
+            .split(';')
+            .filter(|value| !value.trim().is_empty())
+            .map(std::path::PathBuf::from)
+            .collect()
+    }
+
+    #[cfg(windows)]
     #[test]
     fn local_manifest_validation_reports_false_recall_safety() {
-        let (Some(root), Some(manifest), Some(nailong_path), Some(frog_path)) = (
+        let (Some(root), Some(manifest)) = (
             std::env::var_os("NLNF_VALIDATION_ROOT"),
             std::env::var_os("NLNF_VALIDATION_MANIFEST"),
-            std::env::var_os("NLNF_SMOKE_NAILONG"),
-            std::env::var_os("NLNF_SMOKE_NAIWA_FROG"),
         ) else {
             eprintln!(
-                "set NLNF_VALIDATION_ROOT, NLNF_VALIDATION_MANIFEST and both smoke references to run the local validation"
+                "set NLNF_VALIDATION_ROOT, NLNF_VALIDATION_MANIFEST and both reference lists to run the local validation"
             );
             return;
         };
-        let raw_rows = std::fs::read_to_string(manifest)
-            .expect("read validation manifest")
+        let nailong_paths = reference_paths("NLNF_SMOKE_NAILONG_REFERENCES", "NLNF_SMOKE_NAILONG");
+        let frog_paths =
+            reference_paths("NLNF_SMOKE_NAIWA_FROG_REFERENCES", "NLNF_SMOKE_NAIWA_FROG");
+        if nailong_paths.is_empty() || frog_paths.is_empty() {
+            eprintln!(
+                "set at least one Nailong and one Naiwa Frog reference path to run the local validation"
+            );
+            return;
+        }
+        if release_gate_requested() {
+            assert!(
+                (1..=crate::vision::MAX_REFERENCES_PER_CLASS).contains(&nailong_paths.len()),
+                "release validation requires 1..={} Nailong references, got {}",
+                crate::vision::MAX_REFERENCES_PER_CLASS,
+                nailong_paths.len()
+            );
+            assert!(
+                (1..=crate::vision::MAX_REFERENCES_PER_CLASS).contains(&frog_paths.len()),
+                "release validation requires 1..={} Naiwa Frog references, got {}",
+                crate::vision::MAX_REFERENCES_PER_CLASS,
+                frog_paths.len()
+            );
+        }
+        let manifest_bytes = std::fs::read(&manifest).expect("read validation manifest");
+        let raw_rows = String::from_utf8(manifest_bytes.clone())
+            .expect("validation manifest must be UTF-8")
             .lines()
             .map(|line| serde_json::from_str::<ValidationRow>(line).expect("parse validation row"))
             .collect::<Vec<_>>();
@@ -1721,19 +1754,35 @@ mod tests {
                 crate::release::RELEASE_MIN_OTHER
             );
         }
-        let nailong_bytes = std::fs::read(nailong_path).expect("read nailong reference");
-        let frog_bytes = std::fs::read(frog_path).expect("read frog reference");
-        let nailong = crate::decoder::decode_image(&nailong_bytes, 12).expect("decode nailong");
-        let frog = crate::decoder::decode_image(&frog_bytes, 12).expect("decode frog");
         let mut engine = OpenCvVisionEngine::new(Default::default()).unwrap();
-        let references = vec![
-            engine
-                .extract_reference("NL-VALIDATION", ReferenceClass::Nailong, &nailong.frames[0])
-                .unwrap(),
-            engine
-                .extract_reference("NF-VALIDATION", ReferenceClass::NaiwaFrog, &frog.frames[0])
-                .unwrap(),
-        ];
+        let mut references = Vec::new();
+        let mut reference_entries = Vec::new();
+        for (class, class_name, prefix, paths) in [
+            (ReferenceClass::Nailong, "NAILONG", "NL", nailong_paths),
+            (ReferenceClass::NaiwaFrog, "NAIWA_FROG", "NF", frog_paths),
+        ] {
+            for (index, path) in paths.into_iter().enumerate() {
+                let bytes = std::fs::read(&path).expect("read reference image");
+                let sha256 = crate::release::sha256_hex(&bytes);
+                let decoded =
+                    crate::decoder::decode_image(&bytes, 12).expect("decode reference image");
+                let frame = decoded
+                    .frames
+                    .first()
+                    .expect("reference image did not produce a frame");
+                references.push(
+                    engine
+                        .extract_reference_with_source_sha256(
+                            format!("{prefix}-VALIDATION-{index:02}"),
+                            class,
+                            sha256.clone(),
+                            frame,
+                        )
+                        .unwrap(),
+                );
+                reference_entries.push((class_name.to_owned(), sha256));
+            }
+        }
         let mut processed = 0_u32;
         let mut skipped = 0_u32;
         let mut false_target_label = 0_u32;
@@ -1872,20 +1921,26 @@ mod tests {
 
             let certificate_path = std::env::var_os("NLNF_VALIDATION_CERTIFICATE_OUTPUT")
                 .expect("release validation must provide a certificate output path");
+            let native_runtime_name = std::env::var("NLNF_OPENCV_RUNTIME_NAME")
+                .expect("release validation must provide the OpenCV runtime name");
+            let native_runtime_sha256 = std::env::var("NLNF_OPENCV_RUNTIME_SHA256")
+                .expect("release validation must provide the OpenCV runtime SHA-256");
             let certificate = crate::release::ValidationCertificate {
                 schema_version: crate::release::VALIDATION_CERTIFICATE_SCHEMA_VERSION,
                 git_sha: std::env::var("NLNF_VALIDATION_GIT_SHA")
                     .unwrap_or_else(|_| "local-unpinned".to_owned()),
-                reference_set_sha256: crate::release::reference_set_hash(vec![
-                    (
-                        "NAILONG".to_owned(),
-                        crate::release::sha256_hex(&nailong_bytes),
-                    ),
-                    (
-                        "NAIWA_FROG".to_owned(),
-                        crate::release::sha256_hex(&frog_bytes),
-                    ),
-                ]),
+                reference_set_sha256: crate::release::reference_set_hash(reference_entries),
+                validation_manifest_sha256: crate::release::sha256_hex(&manifest_bytes),
+                descriptor_fingerprint: crate::vision_opencv::descriptor_fingerprint(
+                    Default::default(),
+                ),
+                engine_fingerprint: crate::vision_opencv::engine_fingerprint(
+                    Default::default(),
+                    crate::image_policy::MAX_SAMPLE_FRAMES,
+                ),
+                vision_pipeline_version: crate::vision::VISION_PIPELINE_VERSION.to_owned(),
+                native_runtime_name,
+                native_runtime_sha256,
                 thresholds_sha256: crate::release::thresholds_sha256(Default::default()),
                 min_recall_threshold: f64::from(
                     crate::vision::VisionThresholds::default().recall_threshold,

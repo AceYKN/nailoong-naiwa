@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub const MAX_REFERENCES_PER_CLASS: usize = 10;
 pub const MIN_ORDINARY_GEOMETRIC_INLIERS: u32 = 6;
 pub const MAX_ORDINARY_PHASH_SHORTCUT_DISTANCE: u32 = 4;
+pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-ransac-v3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

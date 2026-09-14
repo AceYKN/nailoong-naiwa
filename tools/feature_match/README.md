@@ -57,5 +57,7 @@ The OpenCV-only Tauri config runs
 `stage-opencv-runtime.ps1` after the release binary is built. The script
 copies the exact `$env:OPENCV_WORLD_NAME.dll` beside the executable before NSIS
 bundling; the config explicitly includes the pinned `opencv_world4130.dll` as a
-bundle resource, and fails closed if the name or runtime DLL does not match. The
-DLL is a local build input and is intentionally not committed to Git.
+bundle resource, and fails closed if the name or runtime DLL does not match. If
+`NLNF_OPENCV_RUNTIME_SHA256` is set (as it is for release validation and CI),
+the staging step also compares the actual DLL bytes to that hash. The DLL is a
+local build input and is intentionally not committed to Git.

@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256};
 
 use crate::vision::VisionThresholds;
 
-pub const VALIDATION_CERTIFICATE_SCHEMA_VERSION: u32 = 1;
+pub const VALIDATION_CERTIFICATE_SCHEMA_VERSION: u32 = 2;
+pub const EXPECTED_NATIVE_RUNTIME_NAME: &str = "opencv_world4130";
 pub const RELEASE_MIN_NAILONG: u64 = 100;
 pub const RELEASE_MIN_NAIWA_FROG: u64 = 100;
 pub const RELEASE_MIN_OTHER: u64 = 1_000;
@@ -22,6 +23,12 @@ pub struct ValidationCertificate {
     pub schema_version: u32,
     pub git_sha: String,
     pub reference_set_sha256: String,
+    pub validation_manifest_sha256: String,
+    pub descriptor_fingerprint: String,
+    pub engine_fingerprint: String,
+    pub vision_pipeline_version: String,
+    pub native_runtime_name: String,
+    pub native_runtime_sha256: String,
     pub thresholds_sha256: String,
     pub min_recall_threshold: f64,
     pub nailong_rows: u64,
@@ -87,6 +94,12 @@ pub fn certificate_is_well_formed(certificate: &ValidationCertificate) -> bool {
     certificate.schema_version == VALIDATION_CERTIFICATE_SCHEMA_VERSION
         && is_git_revision(&certificate.git_sha)
         && is_sha256(&certificate.reference_set_sha256)
+        && is_sha256(&certificate.validation_manifest_sha256)
+        && is_sha256(&certificate.descriptor_fingerprint)
+        && is_sha256(&certificate.engine_fingerprint)
+        && certificate.vision_pipeline_version == crate::vision::VISION_PIPELINE_VERSION
+        && certificate.native_runtime_name == EXPECTED_NATIVE_RUNTIME_NAME
+        && is_sha256(&certificate.native_runtime_sha256)
         && certificate
             .thresholds_sha256
             .eq_ignore_ascii_case(&thresholds_sha256(defaults))
@@ -102,6 +115,8 @@ pub fn certificate_is_well_formed(certificate: &ValidationCertificate) -> bool {
 
 pub fn certificate_matches_reference_set(
     current_reference_set_hash: &str,
+    current_descriptor_fingerprint: &str,
+    current_engine_fingerprint: &str,
     recall_threshold: Option<f64>,
 ) -> bool {
     let Some(certificate) = embedded_certificate() else {
@@ -110,11 +125,29 @@ pub fn certificate_matches_reference_set(
     let Some(build_git_sha) = option_env!("NLNF_BUILD_GIT_SHA") else {
         return false;
     };
+    let Some(native_runtime_sha256) = option_env!("NLNF_OPENCV_RUNTIME_SHA256") else {
+        return false;
+    };
+    let Some(native_runtime_name) = option_env!("NLNF_OPENCV_RUNTIME_NAME") else {
+        return false;
+    };
     certificate_is_well_formed(&certificate)
         && certificate.git_sha.eq_ignore_ascii_case(build_git_sha)
         && certificate
             .reference_set_sha256
             .eq_ignore_ascii_case(current_reference_set_hash)
+        && certificate
+            .descriptor_fingerprint
+            .eq_ignore_ascii_case(current_descriptor_fingerprint)
+        && certificate
+            .engine_fingerprint
+            .eq_ignore_ascii_case(current_engine_fingerprint)
+        && certificate
+            .native_runtime_name
+            .eq_ignore_ascii_case(native_runtime_name)
+        && certificate
+            .native_runtime_sha256
+            .eq_ignore_ascii_case(native_runtime_sha256)
         && recall_threshold.is_none_or(|threshold| {
             threshold.is_finite() && threshold >= certificate.min_recall_threshold
         })
@@ -132,7 +165,7 @@ fn is_git_revision(value: &str) -> bool {
 mod tests {
     use super::{
         certificate_is_well_formed, reference_set_hash, thresholds_sha256, ValidationCertificate,
-        VALIDATION_CERTIFICATE_SCHEMA_VERSION,
+        EXPECTED_NATIVE_RUNTIME_NAME, VALIDATION_CERTIFICATE_SCHEMA_VERSION,
     };
     use crate::vision::VisionThresholds;
 
@@ -144,6 +177,12 @@ mod tests {
                 ("NAILONG".to_owned(), "a".repeat(64)),
                 ("NAIWA_FROG".to_owned(), "b".repeat(64)),
             ]),
+            validation_manifest_sha256: "c".repeat(64),
+            descriptor_fingerprint: "d".repeat(64),
+            engine_fingerprint: "e".repeat(64),
+            vision_pipeline_version: crate::vision::VISION_PIPELINE_VERSION.to_owned(),
+            native_runtime_name: EXPECTED_NATIVE_RUNTIME_NAME.to_owned(),
+            native_runtime_sha256: "f".repeat(64),
             thresholds_sha256: thresholds_sha256(VisionThresholds::default()),
             min_recall_threshold: f64::from(VisionThresholds::default().recall_threshold),
             nailong_rows: 100,
@@ -190,5 +229,15 @@ mod tests {
         assert!(!certificate_is_well_formed(&certificate));
         certificate.git_sha = "a".repeat(40);
         assert!(certificate_is_well_formed(&certificate));
+    }
+
+    #[test]
+    fn certificate_requires_the_pinned_runtime_identity() {
+        let mut certificate = valid_certificate();
+        certificate.native_runtime_name = "opencv_world9999".to_owned();
+        assert!(!certificate_is_well_formed(&certificate));
+        certificate.native_runtime_name = EXPECTED_NATIVE_RUNTIME_NAME.to_owned();
+        certificate.native_runtime_sha256 = "not-a-sha".to_owned();
+        assert!(!certificate_is_well_formed(&certificate));
     }
 }

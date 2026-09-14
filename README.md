@@ -11,7 +11,7 @@
 - OpenCV SIFT、RANSAC 和版本化描述子缓存已接入 feature-gated 后端；未设置原生依赖时桌面识别按钮仍会 fail closed，不会伪造 v2 识别结果。
 - OneBot 11 loopback Adapter 已接入桌面 QQ 页面：连接、反向事件、OFF/OBSERVE/AUTO_RECALL 群模式和 moderation_log 持久化均有本机 mock E2E；默认仍为 OFF。
 - QQ 默认保持 `OFF`。真实 Adapter、Observe 和 Auto Recall 都必须在本地测试与人工验收后才会开放。
-- `AUTO_RECALL` 还额外要求冻结验证门禁生成的 certificate、精确未变更的 Reference Bank 和 OneBot Token；普通构建与证书失配时自动保持 `OBSERVE`。
+- `AUTO_RECALL` 还额外要求冻结验证门禁生成的 certificate、精确未变更的完整 Reference Bank、视觉/缓存指纹、OpenCV runtime SHA-256 和 OneBot Token；普通构建与证书失配时自动保持 `OBSERVE`。
 - 公开仓库已创建为 [`AceYKN/nailoong-naiwa`](https://github.com/AceYKN/nailoong-naiwa)；公开内容只包含干净源码和文档，不包含 QQ 缓存、验证图片、模型、安装包或密钥。
 - v1 的数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；不会删除用户 QQ 缓存图片。
 
