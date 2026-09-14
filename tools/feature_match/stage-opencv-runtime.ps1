@@ -50,7 +50,7 @@ if (-not [string]::IsNullOrWhiteSpace($env:NLNF_OPENCV_RUNTIME_SHA256)) {
   }
 }
 if (-not (Test-Path -LiteralPath $releaseDirectory -PathType Container)) {
-  throw "Release directory does not exist yet: $releaseDirectory"
+  New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
 }
 $bundleConfig = Join-Path $desktopRoot 'tauri.opencv.conf.json'
 $bundleConfigText = Get-Content -LiteralPath $bundleConfig -Raw
@@ -63,5 +63,8 @@ if ($bundleConfigText -notmatch [regex]::Escape("target/release/$worldName.dll")
 # the release binary must resolve the non-debug import name.
 Get-ChildItem -LiteralPath $releaseDirectory -Filter "opencv_world*d.dll" -File |
   Remove-Item -Force
-Copy-Item -LiteralPath $runtimeDll.FullName -Destination (Join-Path $releaseDirectory $runtimeDll.Name) -Force
+$releaseRuntimePath = [System.IO.Path]::GetFullPath((Join-Path $releaseDirectory $runtimeDll.Name))
+if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($runtimeDll.FullName, $releaseRuntimePath)) {
+  Copy-Item -LiteralPath $runtimeDll.FullName -Destination $releaseRuntimePath -Force
+}
 Write-Output "Staged $($runtimeDll.Name) beside the release executable (SHA-256 $runtimeSha256)."

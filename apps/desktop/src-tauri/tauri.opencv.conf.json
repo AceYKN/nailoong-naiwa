@@ -1,6 +1,6 @@
 {
   "build": {
-    "beforeBundleCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../tools/feature_match/stage-opencv-runtime.ps1"
+    "beforeBundleCommand": "pwsh -NoProfile -ExecutionPolicy Bypass -File ../../tools/feature_match/stage-opencv-runtime.ps1"
   },
   "bundle": {
     "active": true,
