@@ -7,8 +7,8 @@
 | 范围 | 证据 |
 | --- | --- |
 | v2 方向 | `spec-v2.md` 已将产品定义为零训练、多参考图、传统特征匹配；DeepSeek、训练、ONNX 不属于运行依赖。 |
-| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：71 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，并将旧数据库中的该模式降级为 `OBSERVE`；release manifest 也拒绝重复路径。 |
-| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；最近一次代码验证提交 `c1b04a376051bb7ce78c42eb80e209ad2f352c48` 的 Windows OpenCV feature CI run `34886669194` 通过 85 项库测试、clippy、Tauri OpenCV NSIS 构建、runtime staging、资源检查和 artifact 上传；随后文档同步提交 `cfc83c2286204fdec47c01e522458e547cff67cb` 的 CI run `34888421124`，以及当前公开 HEAD `200214f773b690ee0fb6c6bb846ee3b82f08aa3b` 的 CI run `34890220483` 也已全部通过。release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
+| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：72 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，旧数据库中的该模式降级为 `OBSERVE`，并且多图消息任一图片下载/识别失败时自动撤回降级为 Observe；release manifest 也拒绝重复路径。 |
+| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 的 Windows OpenCV feature CI run `34894318396` 通过 86 项库测试、clippy、Tauri OpenCV NSIS 构建、runtime staging、资源检查和 artifact 上传。release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
 | ReferenceManager | 本地单元测试验证 1~10 张上限、源文件不修改、SHA-256/pHash 元数据与原子复制。 |
 | SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。旧 v4 缓存迁移为无指纹条目并自动失效。 |
 | 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败；设置页可持久化阈值、开发者模式和 SQLite 诊断。浏览器预览检查无 console error。 |
@@ -19,8 +19,8 @@
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
 | 输入边界 | Rust 侧保留 25 MiB、8192×8192、5000 万像素、500 帧，以及 PNG/JPEG/GIF/WebP 的受限检查。 |
 | v1 链路清理 | 数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；用户 QQ 缓存图片未被删除。 |
-| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；当前 HEAD `200214f773b690ee0fb6c6bb846ee3b82f08aa3b` 对应 CI run `34890220483` 六项全部通过，隔离暂存副本与 `origin/main` 已同步。最近一次代码验证提交为 `c1b04a376051bb7ce78c42eb80e209ad2f352c48`。 |
-| Windows 验证 artifact | 最新 CI run `34890220483` 的 `rust-windows-opencv` 上传步骤成功；artifact 名为 `nlnf-windows-opencv-200214f773b690ee0fb6c6bb846ee3b82f08aa3b`，大小 46,877,638 bytes，当前未过期，保留至 2026-09-28。 |
+| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 对应 CI run `34894318396` 六项全部通过，隔离暂存副本与 `origin/main` 已同步。 |
+| Windows 验证 artifact | CI run `34894318396` 的 `rust-windows-opencv` 上传步骤成功；artifact 名为 `nlnf-windows-opencv-9ed93412edfe9e7e4c220dce0844abfe7e7dcf15`，大小 46,884,114 bytes，当前未过期，保留至 2026-09-28。 |
 
 ## 已实现但尚未正式验收
 
@@ -38,9 +38,9 @@
 
 | 范围 | 状态 |
 | --- | --- |
-| OpenCV 原生环境 | 用户态工具目录和公开 CI 均已用固定 OpenCV 4.13.0 + LLVM 20.1.8 验证；最近一次代码验证提交 `c1b04a376051bb7ce78c42eb80e209ad2f352c48` 的 CI run `34886669194` 已通过，当前公开 HEAD `200214f773b690ee0fb6c6bb846ee3b82f08aa3b` 的 run `34890220483` 也已通过；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器、Defender 和签名仍需独立验证。 |
+| OpenCV 原生环境 | 用户态工具目录和公开 CI 均已用固定 OpenCV 4.13.0 + LLVM 20.1.8 验证；代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 的 CI run `34894318396` 已通过；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器、Defender 和签名仍需独立验证。 |
 | `OTHER` / `UNKNOWN` | 已区分：低分且两类均无几何 inlier 返回 `OTHER`；模糊或有部分证据但不足以确定时返回 `UNKNOWN`。仍需真实负例冻结集校准边界。 |
-| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；当前 HEAD `200214f773b690ee0fb6c6bb846ee3b82f08aa3b` 的 GitHub CI run `34890220483` 中，仓库卫生、前端、Rust Ubuntu、Rust Windows、Windows Tauri 打包和 Windows OpenCV 原生 feature job 全部成功。 |
+| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 的 GitHub CI run `34894318396` 中，仓库卫生、前端、Rust Ubuntu、Rust Windows、Windows Tauri 打包和 Windows OpenCV 原生 feature job 全部成功。 |
 | DeepSeek key | 不再调用或上传图片；此前暴露过旧 key，用户应在服务商侧撤销。新 key 只要仍在本机用户环境变量中，也建议完成迁移后清除。 |
 
 ## 重跑核心验证
