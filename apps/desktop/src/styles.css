@@ -100,6 +100,19 @@ h1 { margin-bottom: 14px; font-family: Georgia, "Times New Roman", serif; font-s
 .settings-card dd { min-width: 0; margin: 0; color: #655e56; font-size: 11px; line-height: 1.45; }
 .settings-card dd[data-status="ready"] { color: #4e7655; }
 .settings-card dd[data-status="error"] { color: #9e5950; }
+.threshold-card { margin-top: 16px; }
+.threshold-note { margin: -3px 0 17px; }
+.threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+.threshold-field { display: grid; gap: 6px; color: #817b72; font-size: 10px; }
+.threshold-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.threshold-field small { color: #b2a899; font-size: 9px; letter-spacing: .04em; }
+.threshold-field .text-input { padding: 8px 9px; font-variant-numeric: tabular-nums; }
+.settings-actions { margin-top: 18px; }
+.settings-toggle { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
+.settings-toggle input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: #b88d2d; }
+.settings-toggle span { display: grid; gap: 5px; }
+.settings-toggle strong { color: #4d4943; font-size: 12px; font-weight: 600; }
+.settings-toggle small { color: #9a9187; font-size: 10px; line-height: 1.6; }
 .path-value { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px !important; }
 .settings-note { margin: 20px 0 0; color: #9a9187; font-size: 10px; line-height: 1.6; }
 .placeholder-card { max-width: 620px; margin: 100px auto; padding: 50px; border: 1px solid #e3ddd3; border-radius: 18px; background: rgba(255,253,249,.72); text-align: center; }
@@ -155,6 +168,7 @@ h1 { margin-bottom: 14px; font-family: Georgia, "Times New Roman", serif; font-s
   .main-content { padding: 0 42px 60px; }
   .hero-card { align-items: flex-start; flex-direction: column; }
   .settings-grid { grid-template-columns: 1fr; }
+  .threshold-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qq-endpoint-grid { grid-template-columns: 1fr; }
   .reference-columns { grid-template-columns: 1fr; }
 }

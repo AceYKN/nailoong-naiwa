@@ -8,6 +8,8 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::path::{Path, PathBuf};
 
+use crate::vision::VisionThresholds;
+
 const SQLITE_OK: c_int = 0;
 const SQLITE_ROW: c_int = 100;
 const SQLITE_DONE: c_int = 101;
@@ -198,6 +200,117 @@ impl AppDatabase {
             code: -1,
             message: "reference_set_version is not a valid unsigned integer".to_owned(),
         })
+    }
+
+    pub fn app_settings(&self) -> Result<(VisionThresholds, bool), StorageError> {
+        let defaults = VisionThresholds::default();
+        let thresholds = VisionThresholds {
+            match_threshold: self
+                .setting_f32("vision.match_threshold", defaults.match_threshold)?,
+            other_threshold: self
+                .setting_f32("vision.other_threshold", defaults.other_threshold)?,
+            recall_threshold: self
+                .setting_f32("vision.recall_threshold", defaults.recall_threshold)?,
+            min_margin: self.setting_f32("vision.min_margin", defaults.min_margin)?,
+            min_recall_margin: self
+                .setting_f32("vision.min_recall_margin", defaults.min_recall_margin)?,
+            min_recall_inliers: self
+                .setting_u32("vision.min_recall_inliers", defaults.min_recall_inliers)?,
+            min_recall_ratio: self
+                .setting_f32("vision.min_recall_ratio", defaults.min_recall_ratio)?,
+            min_recall_coverage: self
+                .setting_f32("vision.min_recall_coverage", defaults.min_recall_coverage)?,
+            max_recall_reprojection_error: self.setting_f32(
+                "vision.max_recall_reprojection_error",
+                defaults.max_recall_reprojection_error,
+            )?,
+        };
+        crate::vision::validate_thresholds(thresholds).map_err(|message| StorageError {
+            code: -1,
+            message: format!("stored vision settings are invalid: {message}"),
+        })?;
+        let developer_mode = match self.setting_value("developer_mode")? {
+            None => false,
+            Some(value) if value == "1" => true,
+            Some(value) if value == "0" => false,
+            Some(value) => {
+                return Err(StorageError {
+                    code: -1,
+                    message: format!("developer_mode must be 0 or 1, got {value}"),
+                });
+            }
+        };
+        Ok((thresholds, developer_mode))
+    }
+
+    pub fn save_app_settings(
+        &self,
+        thresholds: VisionThresholds,
+        developer_mode: bool,
+    ) -> Result<(), StorageError> {
+        crate::vision::validate_thresholds(thresholds).map_err(|message| StorageError {
+            code: -1,
+            message: format!("invalid vision settings: {message}"),
+        })?;
+        let values = [
+            (
+                "vision.match_threshold",
+                format!("{:.9}", thresholds.match_threshold),
+            ),
+            (
+                "vision.other_threshold",
+                format!("{:.9}", thresholds.other_threshold),
+            ),
+            (
+                "vision.recall_threshold",
+                format!("{:.9}", thresholds.recall_threshold),
+            ),
+            ("vision.min_margin", format!("{:.9}", thresholds.min_margin)),
+            (
+                "vision.min_recall_margin",
+                format!("{:.9}", thresholds.min_recall_margin),
+            ),
+            (
+                "vision.min_recall_inliers",
+                thresholds.min_recall_inliers.to_string(),
+            ),
+            (
+                "vision.min_recall_ratio",
+                format!("{:.9}", thresholds.min_recall_ratio),
+            ),
+            (
+                "vision.min_recall_coverage",
+                format!("{:.9}", thresholds.min_recall_coverage),
+            ),
+            (
+                "vision.max_recall_reprojection_error",
+                format!("{:.9}", thresholds.max_recall_reprojection_error),
+            ),
+            (
+                "developer_mode",
+                if developer_mode { "1" } else { "0" }.to_owned(),
+            ),
+        ];
+        self.exec("BEGIN IMMEDIATE")?;
+        let result = (|| {
+            for (key, value) in values {
+                self.execute(
+                    "INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    |statement| {
+                        bind_text(statement, 1, key)?;
+                        bind_text(statement, 2, &value)
+                    },
+                )?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => self.exec("COMMIT"),
+            Err(error) => {
+                let _ = self.exec("ROLLBACK");
+                Err(error)
+            }
+        }
     }
 
     pub fn reference_set_hash(&self) -> Result<String, StorageError> {
@@ -885,6 +998,34 @@ impl AppDatabase {
         column_text(statement.raw, 0)
     }
 
+    fn setting_value(&self, key: &str) -> Result<Option<String>, StorageError> {
+        let statement = Statement::prepare(self, "SELECT value FROM settings WHERE key=?1")?;
+        bind_text(statement.raw, 1, key)?;
+        match unsafe { sqlite3_step(statement.raw) } {
+            SQLITE_ROW => Ok(column_optional_text(statement.raw, 0)),
+            SQLITE_DONE => Ok(None),
+            code => Err(self.error(code, "SQLite setting query failed")),
+        }
+    }
+
+    fn setting_f32(&self, key: &str, default: f32) -> Result<f32, StorageError> {
+        self.setting_value(key)?.map_or(Ok(default), |value| {
+            value.parse::<f32>().map_err(|_| StorageError {
+                code: -1,
+                message: format!("{key} is not a valid number: {value}"),
+            })
+        })
+    }
+
+    fn setting_u32(&self, key: &str, default: u32) -> Result<u32, StorageError> {
+        self.setting_value(key)?.map_or(Ok(default), |value| {
+            value.parse::<u32>().map_err(|_| StorageError {
+                code: -1,
+                message: format!("{key} is not a valid unsigned integer: {value}"),
+            })
+        })
+    }
+
     fn error(&self, code: c_int, fallback: &str) -> StorageError {
         StorageError {
             code,
@@ -1170,6 +1311,7 @@ mod tests {
     use super::{
         AppDatabase, ModerationLogRecord, PredictionCacheRecord, QQGroupRecord, ReferenceRecord,
     };
+    use crate::vision::VisionThresholds;
 
     fn temporary_database_path() -> std::path::PathBuf {
         let thread_name = std::thread::current()
@@ -1611,6 +1753,43 @@ mod tests {
                 .unwrap(),
             2
         );
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn app_settings_round_trip_and_reject_unsafe_threshold_ordering() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        let thresholds = VisionThresholds {
+            match_threshold: 0.64,
+            other_threshold: 0.22,
+            min_recall_inliers: 18,
+            ..VisionThresholds::default()
+        };
+        database
+            .save_app_settings(thresholds, true)
+            .expect("settings persist");
+        let (loaded, developer_mode) = database.app_settings().expect("settings load");
+        assert_eq!(loaded, thresholds);
+        assert!(developer_mode);
+
+        let mut unsafe_thresholds = thresholds;
+        unsafe_thresholds.recall_threshold = 0.50;
+        assert!(database
+            .save_app_settings(unsafe_thresholds, false)
+            .is_err());
+        let mut zero_inlier_thresholds = thresholds;
+        zero_inlier_thresholds.min_recall_inliers = 0;
+        assert!(database
+            .save_app_settings(zero_inlier_thresholds, false)
+            .is_err());
+        let (unchanged, still_developer_mode) = database
+            .app_settings()
+            .expect("invalid settings are not committed");
+        assert_eq!(unchanged, thresholds);
+        assert!(still_developer_mode);
         drop(database);
         let _ = std::fs::remove_file(path);
     }

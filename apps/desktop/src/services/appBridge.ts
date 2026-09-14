@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
+  AppSettings,
   ClassificationResult,
   DecodeSummary,
   ImageInspection,
@@ -63,6 +64,14 @@ export async function removeReference(id: string): Promise<void> {
 
 export async function initializeStorage(): Promise<StorageInfo> {
   return invoke<StorageInfo>("initialize_storage");
+}
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>("get_app_settings");
+}
+
+export async function setAppSettings(settings: AppSettings): Promise<AppSettings> {
+  return invoke<AppSettings>("set_app_settings", { settings });
 }
 
 export async function getQqStatus(): Promise<QqStatus> {

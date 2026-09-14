@@ -7,6 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::vision::VisionThresholds;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageError {
     pub code: i32,
@@ -95,6 +97,14 @@ impl AppDatabase {
     }
 
     pub fn reference_set_version(&self) -> Result<u64, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn app_settings(&self) -> Result<(VisionThresholds, bool), StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn save_app_settings(&self, _: VisionThresholds, _: bool) -> Result<(), StorageError> {
         Err(Self::unsupported(&self.path))
     }
 

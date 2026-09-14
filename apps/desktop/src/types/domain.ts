@@ -5,6 +5,23 @@ export type ClassificationLabel = "NAILONG" | "NAIWA_FROG" | "OTHER" | "UNKNOWN"
 export type ConfidenceLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH";
 export type QqMode = "OFF" | "OBSERVE" | "AUTO_RECALL";
 
+export interface VisionThresholds {
+  matchThreshold: number;
+  otherThreshold: number;
+  recallThreshold: number;
+  minMargin: number;
+  minRecallMargin: number;
+  minRecallInliers: number;
+  minRecallRatio: number;
+  minRecallCoverage: number;
+  maxRecallReprojectionError: number;
+}
+
+export interface AppSettings {
+  thresholds: VisionThresholds;
+  developerMode: boolean;
+}
+
 export interface AppInfo {
   productName: string;
   appVersion: string;

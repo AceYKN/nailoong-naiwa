@@ -45,7 +45,13 @@ fn auto_recall_available_for_database(
     }
     #[cfg(feature = "opencv-backend")]
     {
-        let config = crate::vision_opencv::OpenCvConfig::default();
+        let Ok((vision_thresholds, _)) = database.app_settings() else {
+            return false;
+        };
+        let config = crate::vision_opencv::OpenCvConfig {
+            vision_thresholds,
+            ..crate::vision_opencv::OpenCvConfig::default()
+        };
         let descriptor_fingerprint = crate::vision_opencv::descriptor_fingerprint(config);
         let engine_fingerprint =
             crate::vision_opencv::engine_fingerprint(config, image_policy::MAX_SAMPLE_FRAMES);
@@ -525,6 +531,13 @@ fn handle_group_message(
     }) else {
         return;
     };
+    let vision_thresholds = match database.app_settings() {
+        Ok((thresholds, _)) => thresholds,
+        Err(error) => {
+            state.set_error(format!("视觉设置无效，已跳过 QQ 图片处理：{error}"));
+            return;
+        }
+    };
     let configured_mode = match parse_group_mode(&group.mode) {
         Ok(mode) => mode,
         Err(error) => {
@@ -603,7 +616,7 @@ fn handle_group_message(
         }
     }
 
-    let thresholds = thresholds_for_group(group.recall_threshold);
+    let thresholds = thresholds_for_group(vision_thresholds, group.recall_threshold);
     let results = classified
         .iter()
         .map(|(_, result)| result.clone())
@@ -795,10 +808,10 @@ fn mode_name(mode: GroupMode) -> &'static str {
     }
 }
 
-fn thresholds_for_group(recall_threshold: f64) -> VisionThresholds {
+fn thresholds_for_group(base: VisionThresholds, recall_threshold: f64) -> VisionThresholds {
     VisionThresholds {
         recall_threshold: recall_threshold as f32,
-        ..VisionThresholds::default()
+        ..base
     }
 }
 

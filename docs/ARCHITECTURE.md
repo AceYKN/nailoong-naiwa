@@ -73,7 +73,7 @@ invalidates the capability and downgrades stale `AUTO_RECALL` settings to
 The cache key is:
 
 ```text
-image_sha256 + reference_set_version
+image_sha256 + reference_set_version + engine_fingerprint
 ```
 
 The cache stores the complete serialized `ClassificationResult` when possible,
@@ -89,7 +89,7 @@ The desktop UI keeps four pages:
 
 - `识别`: upload one or more files, show label/score/confidence and offer add-as-reference actions;
 - `QQ`: connect to loopback OneBot API/reverse events, configure per-group OFF/OBSERVE/AUTO_RECALL, and review persisted moderation events;
-- `参考图`: manage each class's 1~10 references; preview can be added after descriptor-backed thumbnails are wired;
+- `参考图`: manage each class's 1~10 references with local thumbnail previews;
 - `设置`: thresholds, local storage, decoder/runtime diagnostics and developer-mode toggle.
 
 There is no Feedback page or training loop in the v2 UI. Recognition failures can be added directly as a new reference image and take effect through the reference-bank version.

@@ -19,7 +19,7 @@ pub mod vision;
 #[cfg(feature = "opencv-backend")]
 pub mod vision_opencv;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 #[derive(Debug, Serialize)]
@@ -42,6 +42,13 @@ struct AppInfo {
 struct StorageInfo {
     path: String,
     schema_version: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    thresholds: vision::VisionThresholds,
+    developer_mode: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,7 +160,11 @@ pub(crate) fn classify_image_bytes(
         {
             return Err("请先为奶龙和奶蛙各添加至少 1 张参考图".to_owned());
         }
-        let config = vision_opencv::OpenCvConfig::default();
+        let (vision_thresholds, _) = database.app_settings().map_err(|error| error.to_string())?;
+        let config = vision_opencv::OpenCvConfig {
+            vision_thresholds,
+            ..vision_opencv::OpenCvConfig::default()
+        };
         let descriptor_fingerprint = vision_opencv::descriptor_fingerprint(config);
         let engine_fingerprint = vision_opencv::engine_fingerprint(config, sample_frame_limit);
         // Validate every source file before consulting the prediction cache.
@@ -361,6 +372,30 @@ fn initialize_storage(app: tauri::AppHandle) -> Result<StorageInfo, String> {
         path: database.path().to_string_lossy().into_owned(),
         schema_version: database.schema_version(),
     })
+}
+
+fn app_settings_from_database(database: &storage::AppDatabase) -> Result<AppSettings, String> {
+    let (thresholds, developer_mode) =
+        database.app_settings().map_err(|error| error.to_string())?;
+    Ok(AppSettings {
+        thresholds,
+        developer_mode,
+    })
+}
+
+#[tauri::command]
+fn get_app_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
+    let database = open_database(&app)?;
+    app_settings_from_database(&database)
+}
+
+#[tauri::command]
+fn set_app_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<AppSettings, String> {
+    let database = open_database(&app)?;
+    database
+        .save_app_settings(settings.thresholds, settings.developer_mode)
+        .map_err(|error| error.to_string())?;
+    app_settings_from_database(&database)
 }
 
 #[tauri::command]
@@ -597,6 +632,8 @@ pub fn run() {
             inspect_image,
             decode_image_summary,
             initialize_storage,
+            get_app_settings,
+            set_app_settings,
             vision_info,
             list_references,
             read_reference,

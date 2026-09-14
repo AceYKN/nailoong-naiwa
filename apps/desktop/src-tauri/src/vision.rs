@@ -53,7 +53,8 @@ pub struct MatchResult {
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VisionThresholds {
     pub match_threshold: f32,
     pub other_threshold: f32,
@@ -299,7 +300,7 @@ fn confidence_level(
     }
 }
 
-fn validate_thresholds(thresholds: VisionThresholds) -> Result<(), String> {
+pub fn validate_thresholds(thresholds: VisionThresholds) -> Result<(), String> {
     for (name, value) in [
         ("match_threshold", thresholds.match_threshold),
         ("other_threshold", thresholds.other_threshold),
@@ -315,6 +316,7 @@ fn validate_thresholds(thresholds: VisionThresholds) -> Result<(), String> {
     }
     if !thresholds.max_recall_reprojection_error.is_finite()
         || thresholds.max_recall_reprojection_error < 0.0
+        || thresholds.min_recall_inliers == 0
         || thresholds.other_threshold >= thresholds.match_threshold
         || thresholds.recall_threshold <= thresholds.match_threshold
         || thresholds.min_recall_margin < thresholds.min_margin

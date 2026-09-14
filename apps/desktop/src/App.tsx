@@ -5,15 +5,19 @@ import {
   connectQq,
   debugMatchImage,
   disconnectQq,
+  getAppSettings,
   getAppInfo,
   getQqStatus,
+  initializeStorage,
   inspectImage,
   listReferences,
   readReference,
   removeReference,
+  setAppSettings,
   setQqGroupMode,
 } from "./services/appBridge";
 import type {
+  AppSettings,
   AppInfo,
   AppView,
   ClassificationLabel,
@@ -25,6 +29,8 @@ import type {
   QqStatus,
   ReferenceClass,
   ReferenceInfo,
+  StorageInfo,
+  VisionThresholds,
 } from "./types/domain";
 import { DISPLAY_NAMES, REFERENCE_NAMES } from "./types/domain";
 
@@ -59,6 +65,45 @@ const fallbackAppInfo: AppInfo = {
   naiwaFrogReferenceCount: 0,
   networkRequiredForClassification: false,
 };
+
+const fallbackAppSettings: AppSettings = {
+  thresholds: {
+    matchThreshold: 0.60,
+    otherThreshold: 0.25,
+    recallThreshold: 0.85,
+    minMargin: 0.15,
+    minRecallMargin: 0.20,
+    minRecallInliers: 12,
+    minRecallRatio: 0.55,
+    minRecallCoverage: 0.20,
+    maxRecallReprojectionError: 8.0,
+  },
+  developerMode: false,
+};
+
+const fallbackStorageInfo: StorageInfo = {
+  path: "Tauri 启动后读取",
+  schemaVersion: 0,
+};
+
+const thresholdFields: Array<{
+  key: keyof VisionThresholds;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: "matchThreshold", label: "普通匹配阈值", hint: "T_MATCH", min: 0, max: 1, step: 0.01 },
+  { key: "otherThreshold", label: "其他阈值", hint: "OTHER", min: 0, max: 1, step: 0.01 },
+  { key: "recallThreshold", label: "撤回匹配阈值", hint: "T_RECALL", min: 0, max: 1, step: 0.01 },
+  { key: "minMargin", label: "普通最小差距", hint: "MIN_MARGIN", min: 0, max: 1, step: 0.01 },
+  { key: "minRecallMargin", label: "撤回最小差距", hint: "MIN_RECALL_MARGIN", min: 0, max: 1, step: 0.01 },
+  { key: "minRecallInliers", label: "撤回最少内点", hint: "INLIERS", min: 1, max: 1000, step: 1 },
+  { key: "minRecallRatio", label: "撤回最小内点比", hint: "RATIO", min: 0, max: 1, step: 0.01 },
+  { key: "minRecallCoverage", label: "撤回最小覆盖", hint: "COVERAGE", min: 0, max: 1, step: 0.01 },
+  { key: "maxRecallReprojectionError", label: "最大重投影误差", hint: "ERROR", min: 0, max: 100, step: 0.1 },
+];
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -202,6 +247,10 @@ function App() {
   const [qqToken, setQqToken] = useState("");
   const [qqBusy, setQqBusy] = useState(false);
   const [qqError, setQqError] = useState<string | null>(null);
+  const [appSettings, setAppSettingsState] = useState<AppSettings>(fallbackAppSettings);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo>(fallbackStorageInfo);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const batchClassifyingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -214,7 +263,12 @@ function App() {
 
   const refreshAppState = useCallback(async () => {
     if (!isTauriRuntime()) return;
-    const [info, bank] = await Promise.all([getAppInfo(), listReferences()]);
+    const [info, bank, settings, storage] = await Promise.all([
+      getAppInfo(),
+      listReferences(),
+      getAppSettings(),
+      initializeStorage(),
+    ]);
     referencePreviewUrls.current.forEach((url) => URL.revokeObjectURL(url));
     referencePreviewUrls.current.clear();
     const enrichedBank = await Promise.all(bank.map(async (reference) => {
@@ -231,6 +285,8 @@ function App() {
     }));
     setAppInfo(info);
     setReferences(enrichedBank);
+    setAppSettingsState(settings);
+    setStorageInfo(storage);
   }, []);
 
   useEffect(() => {
@@ -629,13 +685,13 @@ function App() {
                 <strong title={image.file.name}>{image.file.name}</strong>
                 <span>{image.inspection.format} · {image.inspection.width}×{image.inspection.height} · {compactBytes(image.inspection.bytes)}</span>
                 {image.classification && renderResult(image.classification)}
-                {image.classification?.bestMatch && (
+                {appSettings.developerMode && image.classification?.bestMatch && (
                   <button type="button" className="text-button" onClick={() => void showDebugMatch(image.id)} disabled={image.debugLoading}>
                     {image.debugLoading ? "生成特征图…" : "显示匹配特征点"}
                   </button>
                 )}
-                {image.debugPreviewUrl && <img className="debug-preview" src={image.debugPreviewUrl} alt="SIFT/AKAZE 与 RANSAC 匹配特征点" />}
-                {image.debugError && <div className="card-error">特征图生成失败：{image.debugError}</div>}
+                {appSettings.developerMode && image.debugPreviewUrl && <img className="debug-preview" src={image.debugPreviewUrl} alt="SIFT/AKAZE 与 RANSAC 匹配特征点" />}
+                {appSettings.developerMode && image.debugError && <div className="card-error">特征图生成失败：{image.debugError}</div>}
                 {image.classificationError && <div className="card-error">{image.classificationError}</div>}
                 <div className="card-actions">
                   <button type="button" className="secondary-button" onClick={() => void classify(image.id)} disabled={image.classifying}>
@@ -775,6 +831,27 @@ function App() {
     }
   }, [qqStatus.autoRecallAvailable]);
 
+  const handleSaveSettings = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setSettingsError("浏览器预览不能保存设置，请在 Tauri 桌面程序中运行");
+      return;
+    }
+    setSettingsBusy(true);
+    setSettingsError(null);
+    setNotice(null);
+    try {
+      const saved = await setAppSettings(appSettings);
+      setAppSettingsState(saved);
+      await refreshAppState();
+      await refreshQqStatus();
+      setNotice("设置已保存；阈值变化会自动隔离旧识别缓存，并使旧 Auto Recall 凭证失效。");
+    } catch (error) {
+      setSettingsError(errorText(error));
+    } finally {
+      setSettingsBusy(false);
+    }
+  }, [appSettings, refreshAppState, refreshQqStatus]);
+
   const renderQq = () => (
     <div className="settings-page qq-page">
       <p className="eyebrow">QQ ADAPTER</p>
@@ -836,6 +913,8 @@ function App() {
   const renderSettings = () => (
     <div className="settings-page">
       <div className="settings-heading"><p className="eyebrow">LOCAL CONFIGURATION</p><h1>设置</h1></div>
+      {settingsError && <div className="input-issues"><span>{settingsError}</span></div>}
+      {notice && <div className="notice-box">{notice}</div>}
       <div className="settings-grid">
         <section className="settings-card">
           <h2>视觉引擎</h2>
@@ -855,7 +934,60 @@ function App() {
             <div><dt>策略</dt><dd>pHash 粗筛 + SIFT（回退 AKAZE）+ Lowe Ratio + RANSAC</dd></div>
           </dl>
         </section>
+        <section className="settings-card">
+          <h2>本地存储</h2>
+          <dl>
+            <div><dt>SQLite</dt><dd>schema v{storageInfo.schemaVersion}</dd></div>
+            <div><dt>数据库</dt><dd className="path-value">{storageInfo.path}</dd></div>
+            <div><dt>图片</dt><dd>参考图复制到应用数据目录；QQ 缓存不会被移动或删除</dd></div>
+          </dl>
+        </section>
       </div>
+      <section className="settings-card threshold-card">
+        <div className="section-heading compact-heading"><div><p className="eyebrow">DECISION ENGINE</p><h2>识别阈值</h2></div><span className="count-badge">本地保存</span></div>
+        <p className="settings-note threshold-note">只调整确定性决策门槛，不会训练模型。阈值必须保持安全顺序；保存后会让旧预测缓存和 Auto Recall 验证凭证失效。</p>
+        <div className="threshold-grid">
+          {thresholdFields.map((field) => (
+            <label className="threshold-field" key={field.key}>
+              <span>{field.label}<small>{field.hint}</small></span>
+              <input
+                className="text-input"
+                type="number"
+                min={field.min}
+                max={field.max}
+                step={field.step}
+                value={appSettings.thresholds[field.key]}
+                onChange={(event) => {
+                  const value = Number(event.currentTarget.value);
+                  setAppSettingsState((current) => ({
+                    ...current,
+                    thresholds: { ...current.thresholds, [field.key]: value },
+                  }));
+                }}
+                disabled={settingsBusy}
+              />
+            </label>
+          ))}
+        </div>
+        <div className="card-actions settings-actions">
+          <button type="button" className="secondary-button" onClick={() => void handleSaveSettings()} disabled={settingsBusy}>
+            {settingsBusy ? "保存中…" : "保存设置"}
+          </button>
+          <button type="button" className="text-button" onClick={() => setAppSettingsState(fallbackAppSettings)} disabled={settingsBusy}>恢复默认草稿</button>
+        </div>
+      </section>
+      <section className="settings-card">
+        <div className="section-heading compact-heading"><div><p className="eyebrow">DEVELOPER TOOLS</p><h2>开发者模式</h2></div><span className="count-badge">{appSettings.developerMode ? "已开启" : "已关闭"}</span></div>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={appSettings.developerMode}
+            onChange={(event) => setAppSettingsState((current) => ({ ...current, developerMode: event.currentTarget.checked }))}
+            disabled={settingsBusy}
+          />
+          <span><strong>显示匹配特征点调试工具</strong><small>开启后，识别结果卡片显示 SIFT/AKAZE 与 RANSAC 可视化按钮；设置需点击“保存设置”后持久化。</small></span>
+        </label>
+      </section>
       <p className="settings-note">当前版本不包含数据集采集、人工标注、训练、模型导出或云端图片上传链路。</p>
     </div>
   );
