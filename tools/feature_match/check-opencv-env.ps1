@@ -8,6 +8,28 @@ $ErrorActionPreference = "Stop"
 $expectedWorldName = 'opencv_world4130'
 $failures = @()
 
+function Import-UserEnvironmentValue([string]$Name) {
+  $processValue = [Environment]::GetEnvironmentVariable($Name, 'Process')
+  if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+    return
+  }
+  $userValue = [Environment]::GetEnvironmentVariable($Name, 'User')
+  if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+    [Environment]::SetEnvironmentVariable($Name, $userValue, 'Process')
+  }
+}
+
+@(
+  'OPENCV_DIR',
+  'OPENCV_INCLUDE_PATHS',
+  'OPENCV_LINK_PATHS',
+  'OPENCV_WORLD_NAME',
+  'OPENCV_LINK_LIBS',
+  'OPENCV_RUNTIME_DIR',
+  'LIBCLANG_PATH',
+  'CLANG_PATH'
+) | ForEach-Object { Import-UserEnvironmentValue $_ }
+
 function Add-Failure([string]$Message) {
   $script:failures += $Message
 }

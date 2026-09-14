@@ -23,6 +23,11 @@ If these values were written to the Windows user environment, close the
 existing PowerShell and open a new one before running the commands below.
 Already-running shells keep their original environment block. `LIBCLANG_PATH`
 must contain `libclang.dll`; `CLANG_PATH` must point to an actual `clang.exe`.
+The `tauri:dev:opencv` and `tauri:build:opencv` package wrappers also import
+missing values from the Windows user environment and add the native runtime
+directories to the child process, so they can recover from an older shell.
+Manual `cargo` commands still require a refreshed shell or explicit process
+variables.
 
 Run the preflight before starting the native Tauri path:
 
