@@ -617,14 +617,16 @@ fn handle_group_message(
     }
 
     let thresholds = thresholds_for_group(vision_thresholds, group.recall_threshold);
+    let moderation_mode = crate::qq::mode_after_image_failures(mode, failed_images as usize);
     let results = classified
         .iter()
         .map(|(_, result)| result.clone())
         .collect::<Vec<_>>();
     if persistent_claim {
-        let state_name = if results
-            .iter()
-            .any(|result| crate::vision::recall_eligible(result, thresholds))
+        let state_name = if failed_images == 0
+            && results
+                .iter()
+                .any(|result| crate::vision::recall_eligible(result, thresholds))
         {
             "RECALL_ATTEMPTED"
         } else {
@@ -644,7 +646,7 @@ fn handle_group_message(
         adapter,
         message.group_id.clone(),
         message.message_id.clone(),
-        mode,
+        moderation_mode,
         &results,
         thresholds,
     );

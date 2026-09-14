@@ -180,6 +180,17 @@ pub struct MessagePipelineOutcome {
     pub failed_image_ids: Vec<String>,
 }
 
+/// A message with an incomplete image set is not safe to auto-recall. Keep
+/// the candidate visible to the operator as OBSERVE, but never allow a
+/// partially classified message to cross the recall side-effect boundary.
+pub fn mode_after_image_failures(mode: GroupMode, failed_images: usize) -> GroupMode {
+    if failed_images > 0 && mode == GroupMode::AutoRecall {
+        GroupMode::Observe
+    } else {
+        mode
+    }
+}
+
 /// Message-level decision engine. A QQ message is the unit of recall even if
 /// it contains several images. Failed recall attempts are recorded as
 /// processed so the default retry count remains zero. The in-memory key is
@@ -326,7 +337,13 @@ pub fn process_message<A: QQAdapter, C: QQImageClassifier>(
         }
     }
     let classified_images = classifications.len();
-    let event = engine.handle_message(adapter, message_id, mode, &classifications, thresholds);
+    let event = engine.handle_message(
+        adapter,
+        message_id,
+        mode_after_image_failures(mode, failed_image_ids.len()),
+        &classifications,
+        thresholds,
+    );
     MessagePipelineOutcome {
         event,
         classified_images,
@@ -647,6 +664,38 @@ mod tests {
                 failed_image_ids: vec!["missing".to_owned(), "classifier-fails".to_owned()],
             }
         );
+        assert!(adapter.recalled_messages().is_empty());
+    }
+
+    #[test]
+    fn partial_image_failure_downgrades_auto_recall_to_observe() {
+        let mut adapter = MockQQAdapter::default();
+        adapter.add_image("source-ok", vec![1]);
+        adapter.connect().expect("mock connects");
+        let images = [
+            QQImage {
+                image_id: "missing".to_owned(),
+                source_key: "source-missing".to_owned(),
+            },
+            QQImage {
+                image_id: "frog".to_owned(),
+                source_key: "source-ok".to_owned(),
+            },
+        ];
+        let mut engine = MessageModerationEngine::default();
+        let outcome = process_message(
+            &mut adapter,
+            &mut engine,
+            "message-partial",
+            GroupMode::AutoRecall,
+            &images,
+            &frog_classifier,
+            VisionThresholds::default(),
+        );
+        assert_eq!(outcome.classified_images, 1);
+        assert_eq!(outcome.failed_image_ids, vec!["missing"]);
+        assert_eq!(outcome.event.decision, ModerationDecision::ObserveRecall);
+        assert_eq!(outcome.event.action, ModerationAction::Observed);
         assert!(adapter.recalled_messages().is_empty());
     }
 }
