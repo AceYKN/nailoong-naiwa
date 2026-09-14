@@ -98,6 +98,24 @@ pub fn decode_image(bytes: &[u8], max_sample_frames: u32) -> Result<DecodedImage
             }
         }
     };
+    if frames.len() != sampled_frame_indices.len() {
+        return Err("image decoder returned an incomplete frame selection".to_owned());
+    }
+    for frame in &frames {
+        image_policy::validate_decoded_dimensions(frame.width, frame.height)?;
+        let expected_bytes = usize::try_from(frame.width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(frame.height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .and_then(|pixels| pixels.checked_mul(3))
+            .ok_or_else(|| "decoded frame buffer size overflows usize".to_owned())?;
+        if frame.rgb.len() != expected_bytes {
+            return Err("decoded frame RGB buffer has inconsistent dimensions".to_owned());
+        }
+    }
     Ok(DecodedImage {
         inspection,
         sampled_frame_indices,
@@ -624,12 +642,17 @@ fn decode_with_wic(bytes: &[u8], wanted: &[u32]) -> Result<Vec<DecodedFrame>, St
         if width == 0 || height == 0 {
             return Err("WIC returned an empty frame".to_owned());
         }
+        image_policy::validate_decoded_dimensions(width, height)?;
         let stride = width
             .checked_mul(3)
             .ok_or_else(|| "WIC frame stride overflow".to_owned())?;
         let byte_count = usize::try_from(stride)
             .ok()
-            .and_then(|stride| usize::try_from(height).ok().map(|height| stride * height))
+            .and_then(|stride| {
+                usize::try_from(height)
+                    .ok()
+                    .and_then(|height| stride.checked_mul(height))
+            })
             .ok_or_else(|| "WIC frame buffer size overflow".to_owned())?;
         let mut rgb = vec![0_u8; byte_count];
         unsafe { converter.CopyPixels(std::ptr::null(), stride, &mut rgb) }

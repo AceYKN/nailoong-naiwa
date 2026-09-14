@@ -105,6 +105,14 @@ fn validate_dimensions(width: u32, height: u32) -> Result<(), ImagePolicyError> 
     Ok(())
 }
 
+/// Apply the same bounds to dimensions reported by a decoder, not only to
+/// dimensions read from the container header. A platform decoder must not be
+/// allowed to turn a small compressed payload into an unexpectedly large
+/// frame after the header policy has already passed.
+pub(crate) fn validate_decoded_dimensions(width: u32, height: u32) -> Result<(), String> {
+    validate_dimensions(width, height).map_err(|error| error.to_string())
+}
+
 fn parse_png(bytes: &[u8]) -> Result<ImageInspection, ImagePolicyError> {
     if bytes.len() < 33 {
         return Err("truncated PNG header".into());
@@ -441,7 +449,9 @@ fn le_u32(bytes: &[u8]) -> Result<u32, ImagePolicyError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{inspect_image, ImageFormat, MAX_FILE_SIZE_BYTES, MAX_PIXELS};
+    use super::{
+        inspect_image, validate_decoded_dimensions, ImageFormat, MAX_FILE_SIZE_BYTES, MAX_PIXELS,
+    };
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
@@ -531,6 +541,13 @@ mod tests {
         let result = inspect_image(&png(8192, 8192));
         assert!(result.unwrap_err().to_string().contains("decoded pixels"));
         assert!(u64::from(8192u32) * u64::from(8192u32) > MAX_PIXELS);
+    }
+
+    #[test]
+    fn applies_the_same_policy_to_decoder_reported_dimensions() {
+        assert!(validate_decoded_dimensions(8193, 1).is_err());
+        assert!(validate_decoded_dimensions(8192, 8192).is_err());
+        assert!(validate_decoded_dimensions(8192, 6103).is_ok());
     }
 
     #[test]
