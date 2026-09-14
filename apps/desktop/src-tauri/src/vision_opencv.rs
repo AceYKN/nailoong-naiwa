@@ -1517,15 +1517,6 @@ mod tests {
     }
 
     #[cfg(windows)]
-    const RELEASE_MIN_NAILONG: usize = 100;
-    #[cfg(windows)]
-    const RELEASE_MIN_NAIWA_FROG: usize = 100;
-    #[cfg(windows)]
-    const RELEASE_MIN_OTHER: usize = 1_000;
-    #[cfg(windows)]
-    const RELEASE_MIN_GIF: usize = 50;
-
-    #[cfg(windows)]
     fn release_gate_requested() -> bool {
         matches!(
             std::env::var("NLNF_REQUIRE_RELEASE_GATE").as_deref(),
@@ -1581,16 +1572,19 @@ mod tests {
         let unique_row_count = rows.len();
         if release_gate_requested() {
             assert!(
-                expected_nailong >= RELEASE_MIN_NAILONG,
-                "release validation needs at least {RELEASE_MIN_NAILONG} NAILONG rows, got {expected_nailong}"
+                expected_nailong >= crate::release::RELEASE_MIN_NAILONG as usize,
+                "release validation needs at least {} NAILONG rows, got {expected_nailong}",
+                crate::release::RELEASE_MIN_NAILONG
             );
             assert!(
-                expected_frog >= RELEASE_MIN_NAIWA_FROG,
-                "release validation needs at least {RELEASE_MIN_NAIWA_FROG} NAIWA_FROG rows, got {expected_frog}"
+                expected_frog >= crate::release::RELEASE_MIN_NAIWA_FROG as usize,
+                "release validation needs at least {} NAIWA_FROG rows, got {expected_frog}",
+                crate::release::RELEASE_MIN_NAIWA_FROG
             );
             assert!(
-                expected_other >= RELEASE_MIN_OTHER,
-                "release validation needs at least {RELEASE_MIN_OTHER} OTHER rows, got {expected_other}"
+                expected_other >= crate::release::RELEASE_MIN_OTHER as usize,
+                "release validation needs at least {} OTHER rows, got {expected_other}",
+                crate::release::RELEASE_MIN_OTHER
             );
         }
         let nailong_bytes = std::fs::read(nailong_path).expect("read nailong reference");
@@ -1634,9 +1628,22 @@ mod tests {
                 .expect("classify validation image");
             processed += 1;
             match row.label.as_str() {
-                "NAILONG" if result.label == ClassificationLabel::Nailong => correct_nailong += 1,
+                "NAILONG" if result.label == ClassificationLabel::Nailong => {
+                    correct_nailong += 1;
+                    if crate::vision::recall_eligible(&result, Default::default()) {
+                        false_recall += 1;
+                    }
+                }
+                "NAILONG" => {
+                    if crate::vision::recall_eligible(&result, Default::default()) {
+                        false_recall += 1;
+                    }
+                    if result.label == ClassificationLabel::NaiwaFrog {
+                        incorrect_target += 1;
+                    }
+                }
                 "NAIWA_FROG" if result.label == ClassificationLabel::NaiwaFrog => correct_frog += 1,
-                "NAILONG" | "NAIWA_FROG" => incorrect_target += 1,
+                "NAIWA_FROG" => incorrect_target += 1,
                 "OTHER"
                     if !matches!(
                         result.label,
@@ -1720,9 +1727,41 @@ mod tests {
                 "release validation classified an OTHER row as a target"
             );
             assert!(
-                gif_count as usize >= RELEASE_MIN_GIF,
-                "release validation needs at least {RELEASE_MIN_GIF} decoded GIF files, got {gif_count}"
+                gif_count as u64 >= crate::release::RELEASE_MIN_GIF,
+                "release validation needs at least {} decoded GIF files, got {gif_count}",
+                crate::release::RELEASE_MIN_GIF
             );
+
+            let certificate_path = std::env::var_os("NLNF_VALIDATION_CERTIFICATE_OUTPUT")
+                .expect("release validation must provide a certificate output path");
+            let certificate = crate::release::ValidationCertificate {
+                schema_version: crate::release::VALIDATION_CERTIFICATE_SCHEMA_VERSION,
+                git_sha: std::env::var("NLNF_VALIDATION_GIT_SHA")
+                    .unwrap_or_else(|_| "local-unpinned".to_owned()),
+                reference_set_sha256: crate::release::reference_set_hash(vec![
+                    (
+                        "NAILONG".to_owned(),
+                        crate::release::sha256_hex(&nailong_bytes),
+                    ),
+                    (
+                        "NAIWA_FROG".to_owned(),
+                        crate::release::sha256_hex(&frog_bytes),
+                    ),
+                ]),
+                thresholds_sha256: crate::release::thresholds_sha256(Default::default()),
+                min_recall_threshold: f64::from(
+                    crate::vision::VisionThresholds::default().recall_threshold,
+                ),
+                nailong_rows: expected_nailong as u64,
+                naiwa_frog_rows: expected_frog as u64,
+                other_rows: expected_other as u64,
+                gif_rows: gif_count as u64,
+                false_target_label: false_target_label as u64,
+                false_recall: false_recall as u64,
+            };
+            let serialized =
+                serde_json::to_string(&certificate).expect("serialize validation certificate");
+            std::fs::write(certificate_path, serialized).expect("write validation certificate");
         }
     }
 }

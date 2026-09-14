@@ -28,8 +28,8 @@
 - [x] 参考图初始化向导：识别页提供奶龙/奶蛙两步引导，每类至少 1 张即可开始
 - [x] 添加、删除和数量上限 10 张（桌面 UI 已接通并加载缩略图）
 - [x] 保存 SHA-256、pHash、关键点、描述子、尺寸和来源元数据（描述子缓存为版本化二进制）
-- [x] SQLite `reference_images`、`settings` 和 `prediction_cache` v2 schema
-- [x] `reference_set_version` 在添加/删除时递增
+- [x] SQLite `reference_images`、`settings`、`prediction_cache` 和消息幂等表的 v4 schema
+- [x] `reference_set_version` 在添加/删除时递增，且与 SQLite 参考图变更保持同一事务
 - [x] 缓存键采用 `image_sha256 + reference_set_version`
 - [x] 新增参考图不需要训练或重启即可更新数据库版本
 
@@ -54,7 +54,7 @@
 
 - [x] 保留 OFF / OBSERVE / AUTO_RECALL 的 Adapter 边界
 - [x] 保留 MockQQAdapter、消息级 at-most-once 和 fail-closed 单元测试
-- [x] 将 Mock/QQ 输入改接完整 `ClassificationResult`，Auto Recall 不再依赖单一模型概率
+- [x] 将 Mock/QQ 输入改接完整 `ClassificationResult`，Auto Recall 不再依赖单一分数
 - [x] 单元级 OBSERVE 只记录 `WOULD_RECALL`，不产生副作用，并保留有界内存事件日志
 - [x] OneBot loopback Adapter 的桌面连接、反向事件、OBSERVE 日志持久化/回读（本机 mock OneBot E2E）
 - [ ] 用户真实 QQ/OneBot 账号的人工 Observe 运行；Adapter 仍仅限 localhost 且默认关闭
@@ -64,14 +64,16 @@
 - [x] 将 `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 和动画多帧条件固化为可执行决策门禁
 - [x] 提供独立于运行时的冻结验证 manifest 生成器与 release-gate runner；未满足数据门槛时 fail closed
 - [x] 普通构建默认拒绝 `AUTO_RECALL`，旧数据库配置自动降级为 `OBSERVE`；只有显式 `auto-recall-release` 特性构建才可进入后续发布门禁
+- [x] release feature 必须嵌入冻结验证 certificate，并在运行时绑定精确 Reference Bank、阈值和 Token；失配自动降级为 `OBSERVE`
 - [ ] `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 全部通过
 - [ ] 100+ 奶龙、100+ 奶蛙、1000+ 其他、50+ GIF 的冻结验证材料
 - [x] Mock 重复事件、断线、图片获取失败和撤回失败测试（`qq.rs` 覆盖 at-most-once、offline、download/classifier failure、recall failure）
-- [ ] 统计 false recall count；未有证据前保持 AUTO_RECALL 禁用
+- [x] 统计 false recall count，并将非零结果写入 certificate 生成门禁；未有证据前保持 AUTO_RECALL 禁用
 
 ## Phase 8 — Packaging and repository release
 
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）
+- [ ] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job；当前公共 CI 保持不依赖机器专属原生工具链
 - [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
 - [x] 清理旧 Git 历史中的本地敏感标识后，创建干净公开 GitHub 初始提交

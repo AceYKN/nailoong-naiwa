@@ -83,11 +83,11 @@ React UI → Tauri command bridge → Rust VisionEngine → OpenCV
 
 页面保留：识别、QQ、参考图、设置。Feedback 页面不再作为训练闭环；识别失败时提供“添加为奶龙参考”或“添加为奶蛙参考”，保存后立即生效。
 
-ReferenceManager 负责添加、删除、预计算和加载参考图的 pHash、关键点、描述子和 SHA-256。`references`、`prediction_cache`、`qq_groups`、`moderation_log`、`settings` 是主要 SQLite 表。
+ReferenceManager 负责添加、删除、预计算和加载参考图的 pHash、关键点、描述子和 SHA-256。`references`、`prediction_cache`、`qq_groups`、`moderation_log`、`moderation_messages`、`settings` 是主要 SQLite 表；分类缓存尽可能保存完整 `ClassificationResult`，写缓存失败不能影响本次识别。
 
 ## 6. QQ 安全边界
 
-保留 `OFF`、`OBSERVE`、`AUTO_RECALL`，默认 `OFF`。一条多图片消息任意图片强匹配奶蛙时最多撤回一次。Adapter 断线、无权限、图片获取失败、几何证据不足或重复事件都必须 fail closed。Token 不写日志，本地 QQ 服务仅允许 localhost，图片默认不长期保存。
+保留 `OFF`、`OBSERVE`、`AUTO_RECALL`，默认 `OFF`。一条多图片消息任意图片强匹配奶蛙时最多撤回一次。Adapter 断线、无权限、图片获取失败、几何证据不足或重复事件都必须 fail closed。Token 不写日志，本地 QQ 服务仅允许 localhost，图片默认不长期保存。`AUTO_RECALL` 不是单纯的数据库开关：只有显式 release feature 且嵌入冻结验证 certificate、当前参考库哈希和阈值与 certificate 匹配、Token 已配置时才可用；任何参考图或阈值变化都会自动降级到 `OBSERVE`。消息幂等键必须持久化为 `(group_id, message_id)`。
 
 ## 7. 验收
 

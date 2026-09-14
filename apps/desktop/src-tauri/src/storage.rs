@@ -14,7 +14,7 @@ const SQLITE_DONE: c_int = 101;
 const SQLITE_OPEN_READWRITE: c_int = 0x0000_0002;
 const SQLITE_OPEN_CREATE: c_int = 0x0000_0004;
 const SQLITE_OPEN_FULLMUTEX: c_int = 0x0001_0000;
-const SQLITE_SCHEMA_VERSION: u32 = 2;
+const SQLITE_SCHEMA_VERSION: u32 = 4;
 
 #[repr(C)]
 struct sqlite3 {
@@ -69,6 +69,7 @@ unsafe extern "C" {
     fn sqlite3_bind_double(statement: *mut sqlite3_stmt, index: c_int, value: f64) -> c_int;
     fn sqlite3_bind_null(statement: *mut sqlite3_stmt, index: c_int) -> c_int;
     fn sqlite3_column_int64(statement: *mut sqlite3_stmt, column: c_int) -> i64;
+    fn sqlite3_changes(database: *mut sqlite3) -> c_int;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +114,7 @@ pub struct ModerationLogRecord {
     pub nailong_score: Option<f64>,
     pub naiwa_frog_score: Option<f64>,
     pub reference_set_version: Option<u64>,
+    pub classification_label: Option<String>,
     pub decision: String,
     pub action_result: Option<String>,
     pub created_at: String,
@@ -139,6 +141,7 @@ pub struct PredictionCacheRecord {
     pub nailong_score: f64,
     pub naiwa_frog_score: f64,
     pub confidence_level: String,
+    pub classification_json: Option<String>,
     pub source: String,
     pub created_at: String,
 }
@@ -196,12 +199,13 @@ impl AppDatabase {
         })
     }
 
-    pub fn bump_reference_set_version(&self) -> Result<u64, StorageError> {
-        self.execute(
-            "UPDATE settings SET value=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key='reference_set_version'",
-            |_| Ok(()),
-        )?;
-        self.reference_set_version()
+    pub fn reference_set_hash(&self) -> Result<String, StorageError> {
+        let entries = self
+            .list_references()?
+            .into_iter()
+            .map(|record| (record.class, record.sha256))
+            .collect::<Vec<_>>();
+        Ok(crate::release::reference_set_hash(entries))
     }
 
     pub fn count_references(&self, class: &str) -> Result<u64, StorageError> {
@@ -289,16 +293,124 @@ impl AppDatabase {
         )
     }
 
-    pub fn delete_reference(&self, id: &str) -> Result<(), StorageError> {
+    pub fn delete_reference_and_bump_version(&self, id: &str) -> Result<u64, StorageError> {
         if id.trim().is_empty() {
             return Err(StorageError {
                 code: -1,
                 message: "reference id cannot be empty".to_owned(),
             });
         }
-        self.execute("DELETE FROM reference_images WHERE id=?1", |statement| {
-            bind_text(statement, 1, id)
-        })
+        self.exec("BEGIN IMMEDIATE")?;
+        let result = (|| {
+            self.execute("DELETE FROM reference_images WHERE id=?1", |statement| {
+                bind_text(statement, 1, id)
+            })?;
+            if unsafe { sqlite3_changes(self.raw) } != 1 {
+                return Err(StorageError {
+                    code: -1,
+                    message: "reference was not found".to_owned(),
+                });
+            }
+            self.execute(
+                "UPDATE settings SET value=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key='reference_set_version'",
+                |_| Ok(()),
+            )?;
+            self.reference_set_version()
+        })();
+        match result {
+            Ok(version) => match self.exec("COMMIT") {
+                Ok(()) => Ok(version),
+                Err(error) => {
+                    let _ = self.exec("ROLLBACK");
+                    Err(error)
+                }
+            },
+            Err(error) => {
+                let _ = self.exec("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
+    /// Persist a reference and advance the bank version as one SQLite
+    /// transaction. The caller may already have written the image file; a
+    /// database failure therefore remains recoverable through its cleanup
+    /// path, while the database can never expose a new reference with the old
+    /// version.
+    pub fn record_reference_and_bump_version(
+        &self,
+        record: &ReferenceRecord,
+    ) -> Result<u64, StorageError> {
+        self.exec("BEGIN IMMEDIATE")?;
+        let result = (|| {
+            self.record_reference(record)?;
+            self.execute(
+                "UPDATE settings SET value=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key='reference_set_version'",
+                |_| Ok(()),
+            )?;
+            self.reference_set_version()
+        })();
+        match result {
+            Ok(version) => match self.exec("COMMIT") {
+                Ok(()) => Ok(version),
+                Err(error) => {
+                    let _ = self.exec("ROLLBACK");
+                    Err(error)
+                }
+            },
+            Err(error) => {
+                let _ = self.exec("ROLLBACK");
+                Err(error)
+            }
+        }
+    }
+
+    pub fn claim_moderation_message(
+        &self,
+        group_id: &str,
+        message_id: &str,
+        created_at: &str,
+    ) -> Result<bool, StorageError> {
+        if group_id.trim().is_empty() || message_id.trim().is_empty() {
+            return Err(StorageError {
+                code: -1,
+                message: "moderation group_id and message_id cannot be empty".to_owned(),
+            });
+        }
+        self.execute(
+            "INSERT INTO moderation_messages(group_id, message_id, state, created_at, updated_at) VALUES(?1, ?2, 'SEEN', ?3, ?3) ON CONFLICT(group_id, message_id) DO NOTHING",
+            |statement| {
+                bind_text(statement, 1, group_id)?;
+                bind_text(statement, 2, message_id)?;
+                bind_text(statement, 3, created_at)
+            },
+        )?;
+        Ok(unsafe { sqlite3_changes(self.raw) } == 1)
+    }
+
+    pub fn update_moderation_message_state(
+        &self,
+        group_id: &str,
+        message_id: &str,
+        state: &str,
+        updated_at: &str,
+    ) -> Result<(), StorageError> {
+        if group_id.trim().is_empty() || message_id.trim().is_empty() {
+            return Err(StorageError {
+                code: -1,
+                message: "moderation group_id and message_id cannot be empty".to_owned(),
+            });
+        }
+        validate_moderation_message_state(state)?;
+        self.execute(
+            "UPDATE moderation_messages SET state=?3, updated_at=?4 WHERE group_id=?1 AND message_id=?2",
+            |statement| {
+                bind_text(statement, 1, group_id)?;
+                bind_text(statement, 2, message_id)?;
+                bind_text(statement, 3, state)?;
+                bind_text(statement, 4, updated_at)
+            },
+        )
     }
 
     pub fn record_prediction_cache(
@@ -308,6 +420,14 @@ impl AppDatabase {
         validate_sha256_text(&record.image_sha256, "prediction image sha256")?;
         validate_label(&record.label)?;
         validate_confidence(&record.confidence_level)?;
+        if let Some(classification_json) = &record.classification_json {
+            if classification_json.trim().is_empty() {
+                return Err(StorageError {
+                    code: -1,
+                    message: "prediction classification JSON cannot be empty".to_owned(),
+                });
+            }
+        }
         validate_score(record.nailong_score, "nailong_score")?;
         validate_score(record.naiwa_frog_score, "naiwa_frog_score")?;
         let version = i64::try_from(record.reference_set_version).map_err(|_| StorageError {
@@ -315,7 +435,7 @@ impl AppDatabase {
             message: "reference_set_version exceeds SQLite integer range".to_owned(),
         })?;
         self.execute(
-            "INSERT INTO prediction_cache(image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, source, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(image_sha256, reference_set_version) DO UPDATE SET label=excluded.label, nailong_score=excluded.nailong_score, naiwa_frog_score=excluded.naiwa_frog_score, confidence_level=excluded.confidence_level, source=excluded.source, created_at=excluded.created_at",
+            "INSERT INTO prediction_cache(image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) ON CONFLICT(image_sha256, reference_set_version) DO UPDATE SET label=excluded.label, nailong_score=excluded.nailong_score, naiwa_frog_score=excluded.naiwa_frog_score, confidence_level=excluded.confidence_level, classification_json=excluded.classification_json, source=excluded.source, created_at=excluded.created_at",
             |statement| {
                 bind_text(statement, 1, &record.image_sha256)?;
                 bind_int64(statement, 2, version)?;
@@ -323,8 +443,9 @@ impl AppDatabase {
                 bind_double(statement, 4, record.nailong_score)?;
                 bind_double(statement, 5, record.naiwa_frog_score)?;
                 bind_text(statement, 6, &record.confidence_level)?;
-                bind_text(statement, 7, &record.source)?;
-                bind_text(statement, 8, &record.created_at)
+                bind_optional_text(statement, 7, record.classification_json.as_deref())?;
+                bind_text(statement, 8, &record.source)?;
+                bind_text(statement, 9, &record.created_at)
             },
         )
     }
@@ -341,7 +462,7 @@ impl AppDatabase {
         })?;
         let statement = Statement::prepare(
             self,
-            "SELECT image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, source, created_at FROM prediction_cache WHERE image_sha256=?1 AND reference_set_version=?2",
+            "SELECT image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at FROM prediction_cache WHERE image_sha256=?1 AND reference_set_version=?2",
         )?;
         bind_text(statement.raw, 1, image_sha256)?;
         bind_int64(statement.raw, 2, version)?;
@@ -359,8 +480,9 @@ impl AppDatabase {
                 nailong_score: unsafe { sqlite3_column_double(statement.raw, 3) },
                 naiwa_frog_score: unsafe { sqlite3_column_double(statement.raw, 4) },
                 confidence_level: column_text(statement.raw, 5)?,
-                source: column_text(statement.raw, 6)?,
-                created_at: column_text(statement.raw, 7)?,
+                classification_json: column_optional_text(statement.raw, 6),
+                source: column_text(statement.raw, 7)?,
+                created_at: column_text(statement.raw, 8)?,
             })),
             SQLITE_DONE => Ok(None),
             code => Err(self.error(code, "prediction cache query failed")),
@@ -444,8 +566,11 @@ impl AppDatabase {
         if let Some(score) = record.naiwa_frog_score {
             validate_score(score, "naiwa_frog_score")?;
         }
+        if let Some(label) = &record.classification_label {
+            validate_label(label)?;
+        }
         self.execute(
-            "INSERT INTO moderation_log(group_id, message_id, user_id, image_sha256, nailong_score, naiwa_frog_score, reference_set_version, decision, action_result, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO moderation_log(group_id, message_id, user_id, image_sha256, nailong_score, naiwa_frog_score, reference_set_version, classification_label, decision, action_result, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             |statement| {
                 bind_optional_text(statement, 1, record.group_id.as_deref())?;
                 bind_optional_text(statement, 2, record.message_id.as_deref())?;
@@ -454,9 +579,10 @@ impl AppDatabase {
                 bind_optional_double(statement, 5, record.nailong_score)?;
                 bind_optional_double(statement, 6, record.naiwa_frog_score)?;
                 bind_optional_int64(statement, 7, record.reference_set_version)?;
-                bind_text(statement, 8, &record.decision)?;
-                bind_optional_text(statement, 9, record.action_result.as_deref())?;
-                bind_text(statement, 10, &record.created_at)
+                bind_optional_text(statement, 8, record.classification_label.as_deref())?;
+                bind_text(statement, 9, &record.decision)?;
+                bind_optional_text(statement, 10, record.action_result.as_deref())?;
+                bind_text(statement, 11, &record.created_at)
             },
         )
     }
@@ -471,7 +597,7 @@ impl AppDatabase {
         })?;
         let statement = Statement::prepare(
             self,
-            "SELECT group_id, message_id, user_id, image_sha256, nailong_score, naiwa_frog_score, reference_set_version, decision, action_result, created_at FROM moderation_log ORDER BY id DESC LIMIT ?1",
+            "SELECT group_id, message_id, user_id, image_sha256, nailong_score, naiwa_frog_score, reference_set_version, classification_label, decision, action_result, created_at FROM moderation_log ORDER BY id DESC LIMIT ?1",
         )?;
         bind_int64(statement.raw, 1, limit)?;
         let mut records = Vec::new();
@@ -488,9 +614,10 @@ impl AppDatabase {
                         .and_then(|value| value.parse::<f64>().ok()),
                     reference_set_version: column_optional_text(statement.raw, 6)
                         .and_then(|value| value.parse::<u64>().ok()),
-                    decision: column_text(statement.raw, 7)?,
-                    action_result: column_optional_text(statement.raw, 8),
-                    created_at: column_text(statement.raw, 9)?,
+                    classification_label: column_optional_text(statement.raw, 7),
+                    decision: column_text(statement.raw, 8)?,
+                    action_result: column_optional_text(statement.raw, 9),
+                    created_at: column_text(statement.raw, 10)?,
                 }),
                 SQLITE_DONE => break,
                 code => return Err(self.error(code, "moderation log query failed")),
@@ -514,16 +641,16 @@ impl AppDatabase {
                  created_at TEXT NOT NULL,
                  updated_at TEXT NOT NULL
              );
-             CREATE TABLE IF NOT EXISTS moderation_log (
+              CREATE TABLE IF NOT EXISTS moderation_log (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  group_id TEXT,
                  message_id TEXT,
                  user_id TEXT,
-                 image_sha256 TEXT,
-                 nailong_score REAL,
-                 naiwa_frog_score REAL,
-                 reference_set_version INTEGER,
-                 decision TEXT NOT NULL,
+                  image_sha256 TEXT,
+                  nailong_score REAL,
+                  naiwa_frog_score REAL,
+                  reference_set_version INTEGER,
+                  decision TEXT NOT NULL,
                  action_result TEXT,
                  created_at TEXT NOT NULL
              );
@@ -556,11 +683,42 @@ impl AppDatabase {
                  created_at TEXT NOT NULL,
                  UNIQUE(image_sha256, reference_set_version)
              );
-             INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-                 VALUES(1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-             INSERT OR IGNORE INTO schema_migrations(version, applied_at)
-                 VALUES(2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
-        )
+              INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                  VALUES(1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+              INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                  VALUES(2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));",
+        )?;
+
+        if !self.column_exists("moderation_log", "classification_label")? {
+            self.exec("ALTER TABLE moderation_log ADD COLUMN classification_label TEXT")?;
+        }
+        self.exec(
+            "CREATE TABLE IF NOT EXISTS moderation_messages (
+                 group_id TEXT NOT NULL,
+                 message_id TEXT NOT NULL,
+                 state TEXT NOT NULL CHECK(state IN ('SEEN', 'WOULD_RECALL', 'RECALL_ATTEMPTED', 'RECALLED', 'RECALL_FAILED')),
+                 created_at TEXT NOT NULL,
+                 updated_at TEXT NOT NULL,
+                 PRIMARY KEY(group_id, message_id)
+             );",
+        )?;
+        if !self.migration_applied(3)? {
+            self.exec(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                     VALUES(3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )?;
+        }
+
+        if !self.column_exists("prediction_cache", "classification_json")? {
+            self.exec("ALTER TABLE prediction_cache ADD COLUMN classification_json TEXT")?;
+        }
+        if !self.migration_applied(4)? {
+            self.exec(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                     VALUES(4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )?;
+        }
+        Ok(())
     }
 
     fn exec(&self, sql: &str) -> Result<(), StorageError> {
@@ -611,6 +769,35 @@ impl AppDatabase {
             return Err(self.error(code, "SQLite query returned no row"));
         }
         Ok(unsafe { sqlite3_column_int64(statement.raw, 0) })
+    }
+
+    fn migration_applied(&self, version: u32) -> Result<bool, StorageError> {
+        let statement = Statement::prepare(
+            self,
+            "SELECT 1 FROM schema_migrations WHERE version=?1 LIMIT 1",
+        )?;
+        bind_int64(statement.raw, 1, i64::from(version))?;
+        match unsafe { sqlite3_step(statement.raw) } {
+            SQLITE_ROW => Ok(true),
+            SQLITE_DONE => Ok(false),
+            code => Err(self.error(code, "schema migration lookup failed")),
+        }
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> Result<bool, StorageError> {
+        let sql = format!("PRAGMA table_info({table})");
+        let statement = Statement::prepare(self, &sql)?;
+        loop {
+            match unsafe { sqlite3_step(statement.raw) } {
+                SQLITE_ROW => {
+                    if column_optional_text(statement.raw, 1).as_deref() == Some(column) {
+                        return Ok(true);
+                    }
+                }
+                SQLITE_DONE => return Ok(false),
+                code => return Err(self.error(code, "SQLite table schema lookup failed")),
+            }
+        }
     }
 
     fn query_text(&self, sql: &str) -> Result<String, StorageError> {
@@ -863,6 +1050,20 @@ fn validate_confidence(value: &str) -> Result<(), StorageError> {
     }
 }
 
+fn validate_moderation_message_state(value: &str) -> Result<(), StorageError> {
+    if matches!(
+        value,
+        "SEEN" | "WOULD_RECALL" | "RECALL_ATTEMPTED" | "RECALLED" | "RECALL_FAILED"
+    ) {
+        Ok(())
+    } else {
+        Err(StorageError {
+            code: -1,
+            message: format!("invalid moderation message state: {value}"),
+        })
+    }
+}
+
 fn validate_sha256_text(value: &str, field: &str) -> Result<(), StorageError> {
     validate_hex_text(value, 64, field)
 }
@@ -919,7 +1120,7 @@ mod tests {
         let path = temporary_database_path();
         let _ = std::fs::remove_file(&path);
         let database = AppDatabase::open(&path).expect("Windows SQLite opens");
-        assert_eq!(database.schema_version(), 2);
+        assert_eq!(database.schema_version(), 4);
         database
             .upsert_qq_group(&QQGroupRecord {
                 group_id: "group-1".to_owned(),
@@ -939,6 +1140,7 @@ mod tests {
                 nailong_score: Some(0.12),
                 naiwa_frog_score: Some(0.98),
                 reference_set_version: Some(1),
+                classification_label: Some("NAIWA_FROG".to_owned()),
                 decision: "PASS".to_owned(),
                 action_result: Some("NONE".to_owned()),
                 created_at: "2026-09-12T00:00:03Z".to_owned(),
@@ -965,6 +1167,7 @@ mod tests {
                 nailong_score: 0.12,
                 naiwa_frog_score: 0.98,
                 confidence_level: "VERY_HIGH".to_owned(),
+                classification_json: None,
                 source: "opencv-sift".to_owned(),
                 created_at: "2026-09-12T00:00:05Z".to_owned(),
             })
@@ -1001,6 +1204,7 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].message_id.as_deref(), Some("message-1"));
         assert_eq!(logs[0].naiwa_frog_score, Some(0.98));
+        assert_eq!(logs[0].classification_label.as_deref(), Some("NAIWA_FROG"));
         drop(database);
         assert!(path.is_file());
         let _ = std::fs::remove_file(path);
@@ -1018,6 +1222,7 @@ mod tests {
             reference_set_version: 1,
             label: "OTHER".to_owned(),
             confidence_level: "LOW".to_owned(),
+            classification_json: None,
             source: "first".to_owned(),
             created_at: "2026-09-12T00:00:00Z".to_owned(),
         };
@@ -1043,6 +1248,21 @@ mod tests {
             .expect("prediction cache entry is readable");
         assert_eq!(cached.nailong_score, 0.30);
         assert_eq!(cached.source, "updated");
+        database
+            .record_prediction_cache(&PredictionCacheRecord {
+                classification_json: Some(r#"{"label":"OTHER"}"#.to_owned()),
+                ..cached.clone()
+            })
+            .expect("full classification cache persists");
+        assert_eq!(
+            database
+                .find_prediction_cache(&"b".repeat(64), 1)
+                .unwrap()
+                .unwrap()
+                .classification_json
+                .as_deref(),
+            Some(r#"{"label":"OTHER"}"#)
+        );
         assert!(database
             .find_prediction_cache(&"c".repeat(64), 1)
             .unwrap()
@@ -1055,6 +1275,7 @@ mod tests {
                 nailong_score: 0.9,
                 naiwa_frog_score: 0.1,
                 confidence_level: "HIGH".to_owned(),
+                classification_json: None,
                 source: "updated-reference-bank".to_owned(),
                 created_at: "2026-09-12T00:00:01Z".to_owned(),
             })
@@ -1081,6 +1302,7 @@ mod tests {
             nailong_score: f64::NAN,
             naiwa_frog_score: 0.2,
             confidence_level: "LOW".to_owned(),
+            classification_json: None,
             source: "test".to_owned(),
             created_at: "now".to_owned(),
         });
@@ -1104,22 +1326,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let database = AppDatabase::open(&path).expect("Windows SQLite opens");
         assert_eq!(database.reference_set_version().unwrap(), 1);
-        database
-            .record_reference(&ReferenceRecord {
-                id: "NF01".to_owned(),
-                class: "NAIWA_FROG".to_owned(),
-                file_path: "references/naiwa_frog/NF01.png".to_owned(),
-                sha256: "f".repeat(64),
-                phash: "0123456789abcdef".to_owned(),
-                descriptor_path: Some("cache/NF01.desc".to_owned()),
-                width: 640,
-                height: 480,
-                created_at: "2026-09-12T00:00:00Z".to_owned(),
-            })
-            .expect("reference persists");
+        assert_eq!(
+            database
+                .record_reference_and_bump_version(&ReferenceRecord {
+                    id: "NF01".to_owned(),
+                    class: "NAIWA_FROG".to_owned(),
+                    file_path: "references/naiwa_frog/NF01.png".to_owned(),
+                    sha256: "f".repeat(64),
+                    phash: "0123456789abcdef".to_owned(),
+                    descriptor_path: Some("cache/NF01.desc".to_owned()),
+                    width: 640,
+                    height: 480,
+                    created_at: "2026-09-12T00:00:00Z".to_owned(),
+                })
+                .expect("reference and version persist atomically"),
+            2
+        );
         assert_eq!(database.count_references("NAIWA_FROG").unwrap(), 1);
         assert_eq!(database.list_references().unwrap()[0].id, "NF01");
-        assert_eq!(database.bump_reference_set_version().unwrap(), 2);
+        let reference_hash = database.reference_set_hash().unwrap();
+        assert_eq!(reference_hash.len(), 64);
         let cache = PredictionCacheRecord {
             image_sha256: "a".repeat(64),
             reference_set_version: 2,
@@ -1127,6 +1353,7 @@ mod tests {
             nailong_score: 0.12,
             naiwa_frog_score: 0.91,
             confidence_level: "VERY_HIGH".to_owned(),
+            classification_json: None,
             source: "opencv-sift".to_owned(),
             created_at: "2026-09-12T00:00:01Z".to_owned(),
         };
@@ -1141,10 +1368,47 @@ mod tests {
             .find_prediction_cache(&"a".repeat(64), 1)
             .unwrap()
             .is_none());
-        database
-            .delete_reference("NF01")
-            .expect("reference deletes");
+        assert_eq!(
+            database
+                .delete_reference_and_bump_version("NF01")
+                .expect("reference deletes and bumps version"),
+            3
+        );
         assert_eq!(database.count_references("NAIWA_FROG").unwrap(), 0);
+        assert_ne!(reference_hash, database.reference_set_hash().unwrap());
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_atomic_reference_mutation_does_not_advance_version() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        let record = ReferenceRecord {
+            id: "NF01".to_owned(),
+            class: "NAIWA_FROG".to_owned(),
+            file_path: "references/naiwa_frog/NF01.png".to_owned(),
+            sha256: "f".repeat(64),
+            phash: "0123456789abcdef".to_owned(),
+            descriptor_path: None,
+            width: 640,
+            height: 480,
+            created_at: "now".to_owned(),
+        };
+        assert_eq!(
+            database.record_reference_and_bump_version(&record).unwrap(),
+            2
+        );
+        let duplicate = ReferenceRecord {
+            id: "NF02".to_owned(),
+            ..record
+        };
+        assert!(database
+            .record_reference_and_bump_version(&duplicate)
+            .is_err());
+        assert_eq!(database.reference_set_version().unwrap(), 2);
+        assert_eq!(database.count_references("NAIWA_FROG").unwrap(), 1);
         drop(database);
         let _ = std::fs::remove_file(path);
     }
@@ -1163,13 +1427,14 @@ mod tests {
                     nailong_score: 0.4,
                     naiwa_frog_score: 0.6,
                     confidence_level: "MEDIUM".to_owned(),
+                    classification_json: None,
                     source: "test".to_owned(),
                     created_at: "2026-09-12T00:00:00Z".to_owned(),
                 })
                 .expect("prediction persists before reopen");
         }
         let reopened = AppDatabase::open(&path).expect("reopen applies no duplicate migration");
-        assert_eq!(reopened.schema_version(), 2);
+        assert_eq!(reopened.schema_version(), 4);
         assert!(reopened
             .find_prediction_cache(&"e".repeat(64), 1)
             .unwrap()
@@ -1178,9 +1443,36 @@ mod tests {
             reopened
                 .query_i64("SELECT COUNT(*) FROM schema_migrations")
                 .unwrap(),
-            2
+            4
         );
         drop(reopened);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn moderation_message_claim_is_group_scoped_and_persistent() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        assert!(database
+            .claim_moderation_message("group-a", "message-1", "now")
+            .unwrap());
+        assert!(!database
+            .claim_moderation_message("group-a", "message-1", "later")
+            .unwrap());
+        assert!(database
+            .claim_moderation_message("group-b", "message-1", "now")
+            .unwrap());
+        database
+            .update_moderation_message_state("group-a", "message-1", "RECALLED", "later")
+            .unwrap();
+        assert_eq!(
+            database
+                .query_i64("SELECT COUNT(*) FROM moderation_messages")
+                .unwrap(),
+            2
+        );
+        drop(database);
         let _ = std::fs::remove_file(path);
     }
 }

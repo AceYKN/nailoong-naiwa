@@ -57,15 +57,29 @@ The deterministic Rust decision layer is independent of OpenCV and QQ. `OTHER` m
 
 Adapter errors, missing permissions, image-fetch errors and incomplete geometry fail closed. The default mode is `OFF`; `OBSERVE` records `WOULD_RECALL` only.
 
+`AUTO_RECALL` is a release capability, not a database flag. A release-feature
+build must embed the JSON certificate emitted by `tools/validation/`. The
+certificate is accepted only when it is well formed, records the minimum
+positive/negative/GIF counts with zero false recall, and matches the current
+Reference Bank hash plus the configured recall threshold. Token presence is
+also required. Any reference add/delete or threshold change therefore
+invalidates the capability and downgrades stale `AUTO_RECALL` settings to
+`OBSERVE`.
+
 ## ReferenceManager and storage
 
-`ReferenceManager` owns file validation, SHA-256, pHash metadata, add/delete operations and app-data copies. It enforces 1~10 references per class. With the OpenCV feature enabled, adding a reference also writes a versioned descriptor cache beside the app database; a missing or invalid cache is safely re-extracted. Adding or deleting a reference increments `reference_set_version`.
+`ReferenceManager` owns file validation, SHA-256, pHash metadata, add/delete operations and app-data copies. It enforces 1~10 references per class. With the OpenCV feature enabled, adding a reference also writes a versioned descriptor cache beside the app database; a missing or invalid cache is safely re-extracted. Adding or deleting a reference increments `reference_set_version` in the same SQLite transaction as the logical reference mutation. File cleanup happens after a successful commit; an orphaned file is logged for later cleanup rather than making the database state ambiguous.
 
 The cache key is:
 
 ```text
 image_sha256 + reference_set_version
 ```
+
+The cache stores the complete serialized `ClassificationResult` when possible,
+so a valid hit can be returned without reloading descriptors. Cache writes are
+best effort: a storage failure never turns a successful local classification
+into an application failure.
 
 The SQLite schema stores logical references in `reference_images`, prediction cache, QQ groups, moderation logs and settings. Descriptor blobs may live beside the database with a path and SHA-256 recorded in the reference table. A stale cache can never survive a reference bank version change.
 
@@ -90,6 +104,11 @@ then guarded by a UI confirmation plus the deterministic geometry gates. A
 normal build downgrades stale AUTO_RECALL settings to OBSERVE. Recent
 events are held in a bounded in-memory view and persisted in `moderation_log`
 so they can be recovered after restart.
+The persisted classification label is read from its stored field; legacy rows
+without that field are displayed without a guessed label. Auto-recall message
+claims are persisted in `moderation_messages` with a `(group_id, message_id)`
+primary key, so restarts and identical message IDs in different groups cannot
+cause an unintended second action.
 
 ## Migration boundary
 

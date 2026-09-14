@@ -44,6 +44,7 @@ pub struct ModerationLogRecord {
     pub nailong_score: Option<f64>,
     pub naiwa_frog_score: Option<f64>,
     pub reference_set_version: Option<u64>,
+    pub classification_label: Option<String>,
     pub decision: String,
     pub action_result: Option<String>,
     pub created_at: String,
@@ -70,6 +71,7 @@ pub struct PredictionCacheRecord {
     pub nailong_score: f64,
     pub naiwa_frog_score: f64,
     pub confidence_level: String,
+    pub classification_json: Option<String>,
     pub source: String,
     pub created_at: String,
 }
@@ -88,14 +90,14 @@ impl AppDatabase {
     }
 
     pub fn schema_version(&self) -> u32 {
-        2
+        4
     }
 
     pub fn reference_set_version(&self) -> Result<u64, StorageError> {
         Err(Self::unsupported(&self.path))
     }
 
-    pub fn bump_reference_set_version(&self) -> Result<u64, StorageError> {
+    pub fn reference_set_hash(&self) -> Result<String, StorageError> {
         Err(Self::unsupported(&self.path))
     }
 
@@ -111,7 +113,33 @@ impl AppDatabase {
         Err(Self::unsupported(&self.path))
     }
 
-    pub fn delete_reference(&self, _: &str) -> Result<(), StorageError> {
+    pub fn delete_reference_and_bump_version(&self, _: &str) -> Result<u64, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn record_reference_and_bump_version(
+        &self,
+        _: &ReferenceRecord,
+    ) -> Result<u64, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn claim_moderation_message(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<bool, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn update_moderation_message_state(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<(), StorageError> {
         Err(Self::unsupported(&self.path))
     }
 

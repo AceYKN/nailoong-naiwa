@@ -32,7 +32,7 @@ export interface DecodeSummary {
   format: ImageInspection["format"];
   sourceFrameCount: number;
   sampledFrameIndices: number[];
-  tensorShape: [number, number, number, number];
+  frameShape: [number, number, number, number];
 }
 
 export interface MatchResult {

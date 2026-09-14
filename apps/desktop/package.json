@@ -13,6 +13,7 @@
     "tauri:dev:opencv:e2e": "tauri dev --config src-tauri/tauri.e2e.conf.json --features opencv-backend",
     "tauri:build": "tauri build",
     "tauri:build:opencv": "tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend --bundles nsis --no-sign --ci",
+    "tauri:build:opencv:recall": "tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend,auto-recall-release --bundles nsis --no-sign --ci",
     "tauri:build:preview": "tauri build --bundles nsis --no-sign --ci"
   },
   "dependencies": {

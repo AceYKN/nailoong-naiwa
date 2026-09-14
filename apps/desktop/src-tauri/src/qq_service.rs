@@ -20,7 +20,8 @@ use crate::{
     moderation::{GroupMode, ModerationDecision},
     onebot::{LoopbackEndpoint, OneBotHttpAdapter, OneBotReverseListener},
     qq::{MessageModerationEngine, ModerationAction, QQAdapter, QQError},
-    storage::{ModerationLogRecord, QQGroupRecord},
+    release,
+    storage::{AppDatabase, ModerationLogRecord, QQGroupRecord},
     vision::{ClassificationLabel, ClassificationResult, VisionThresholds},
 };
 
@@ -30,12 +31,27 @@ const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 fn auto_recall_available() -> bool {
     cfg!(feature = "auto-recall-release")
+        && release::embedded_certificate()
+            .is_some_and(|certificate| release::certificate_is_well_formed(&certificate))
+}
+
+fn auto_recall_available_for_database(
+    database: &AppDatabase,
+    token_configured: bool,
+    recall_threshold: Option<f64>,
+) -> bool {
+    token_configured
+        && auto_recall_available()
+        && database
+            .reference_set_hash()
+            .ok()
+            .is_some_and(|hash| release::certificate_matches_reference_set(&hash, recall_threshold))
 }
 
 fn validate_requested_mode(mode: GroupMode) -> Result<(), String> {
     if mode == GroupMode::AutoRecall && !auto_recall_available() {
         return Err(
-            "AUTO_RECALL 尚未开放：请先通过冻结验证门禁，并使用 auto-recall-release 特性构建"
+            "AUTO_RECALL 尚未开放：请先通过冻结验证门禁、嵌入验证凭证，并使用 auto-recall-release 特性构建"
                 .to_owned(),
         );
     }
@@ -96,6 +112,7 @@ struct Runtime {
     action_endpoint: Option<String>,
     event_endpoint: Option<String>,
     token_configured: bool,
+    auto_recall_available: bool,
     groups: Vec<QqGroupView>,
     recent_events: VecDeque<QqEventView>,
     last_error: Option<String>,
@@ -121,8 +138,12 @@ impl QqServiceState {
             action_endpoint: runtime.action_endpoint.clone(),
             event_endpoint: runtime.event_endpoint.clone(),
             token_configured: runtime.token_configured,
-            auto_recall_available: auto_recall_available(),
-            groups: runtime.groups.iter().map(normalize_group_view).collect(),
+            auto_recall_available: runtime.auto_recall_available,
+            groups: runtime
+                .groups
+                .iter()
+                .map(|group| normalize_group_view(group, runtime.auto_recall_available))
+                .collect(),
             recent_events: runtime.recent_events.iter().cloned().collect(),
             last_error: runtime.last_error.clone(),
         }
@@ -158,16 +179,35 @@ impl QqServiceState {
         runtime.action_endpoint = None;
         runtime.event_endpoint = None;
         runtime.token_configured = false;
+        runtime.auto_recall_available = false;
     }
 }
 
 #[tauri::command]
 pub fn qq_status(app: AppHandle, state: State<'_, QqServiceState>) -> Result<QqStatus, String> {
     let mut status = state.snapshot();
-    if !status.connected {
-        if let Ok(database) = crate::open_database(&app) {
+    if let Ok(database) = crate::open_database(&app) {
+        status.auto_recall_available =
+            auto_recall_available_for_database(&database, status.token_configured, None);
+        if status.connected {
+            status.groups = status
+                .groups
+                .iter()
+                .map(|group| normalize_group_view(group, status.auto_recall_available))
+                .collect();
+        } else {
             if let Ok(groups) = database.list_qq_groups() {
-                status.groups = groups.iter().map(group_view).collect();
+                status.groups = groups
+                    .iter()
+                    .map(|group| {
+                        let available = auto_recall_available_for_database(
+                            &database,
+                            status.token_configured,
+                            Some(group.recall_threshold),
+                        );
+                        group_view(group, available)
+                    })
+                    .collect();
             }
             if status.recent_events.is_empty() {
                 if let Ok(logs) = database.recent_moderation_logs(MAX_RECENT_EVENTS) {
@@ -223,6 +263,7 @@ pub fn connect_qq(
     adapter.connect().map_err(qq_error)?;
     let remote_groups = adapter.get_group_list().map_err(qq_error)?;
     let database = crate::open_database(&app)?;
+    let auto_recall_ready = auto_recall_available_for_database(&database, token.is_some(), None);
     let mut groups = Vec::with_capacity(remote_groups.len());
     for group in &remote_groups {
         adapter
@@ -249,7 +290,12 @@ pub fn connect_qq(
                 created
             }
         };
-        groups.push(group_view(&record));
+        let group_ready = auto_recall_available_for_database(
+            &database,
+            token.is_some(),
+            Some(record.recall_threshold),
+        );
+        groups.push(group_view(&record, group_ready));
     }
 
     let listener = OneBotReverseListener::bind(event.clone(), token.clone()).map_err(qq_error)?;
@@ -269,6 +315,7 @@ pub fn connect_qq(
     runtime.action_endpoint = Some(action.display_url());
     runtime.event_endpoint = Some(event.display_url());
     runtime.token_configured = token.is_some();
+    runtime.auto_recall_available = auto_recall_ready;
     runtime.groups = groups;
     runtime.last_error = None;
     runtime.stop_sender = Some(stop_sender);
@@ -278,8 +325,12 @@ pub fn connect_qq(
         action_endpoint: runtime.action_endpoint.clone(),
         event_endpoint: runtime.event_endpoint.clone(),
         token_configured: runtime.token_configured,
-        auto_recall_available: auto_recall_available(),
-        groups: runtime.groups.iter().map(normalize_group_view).collect(),
+        auto_recall_available: runtime.auto_recall_available,
+        groups: runtime
+            .groups
+            .iter()
+            .map(|group| normalize_group_view(group, runtime.auto_recall_available))
+            .collect(),
         recent_events: runtime.recent_events.iter().cloned().collect(),
         last_error: runtime.last_error.clone(),
     })
@@ -324,6 +375,11 @@ pub fn set_qq_group_mode(
     }
     let mode = parse_group_mode(&mode)?;
     validate_requested_mode(mode)?;
+    let token_configured = state
+        .inner
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .token_configured;
     let database = crate::open_database(&app)?;
     let previous = database
         .find_qq_group(&group_id)
@@ -349,6 +405,17 @@ pub fn set_qq_group_mode(
             .unwrap_or_else(|| now.clone()),
         updated_at: now,
     };
+    let group_ready = auto_recall_available_for_database(
+        &database,
+        token_configured,
+        Some(record.recall_threshold),
+    );
+    if mode == GroupMode::AutoRecall && !group_ready {
+        return Err(
+            "AUTO_RECALL 当前不可用：需要 Token、验证凭证、未变更的参考库和不低于验证门槛的阈值"
+                .to_owned(),
+        );
+    }
     database
         .upsert_qq_group(&record)
         .map_err(|error| error.to_string())?;
@@ -362,9 +429,9 @@ pub fn set_qq_group_mode(
         .iter_mut()
         .find(|value| value.group_id == group_id)
     {
-        *group = group_view(&record);
+        *group = group_view(&record, group_ready);
     } else {
-        runtime.groups.push(group_view(&record));
+        runtime.groups.push(group_view(&record, group_ready));
     }
     runtime
         .groups
@@ -445,10 +512,53 @@ fn handle_group_message(
             return;
         }
     };
-    let mode = effective_group_mode(configured_mode);
+    let mode = if configured_mode == GroupMode::AutoRecall
+        && !auto_recall_available_for_database(
+            &database,
+            adapter.token_configured(),
+            Some(group.recall_threshold),
+        ) {
+        // A reference-bank or threshold change invalidates the release
+        // certificate immediately. Continue in OBSERVE so the event remains
+        // visible, but never call delete_msg with stale evidence.
+        GroupMode::Observe
+    } else {
+        effective_group_mode(configured_mode)
+    };
     if mode == GroupMode::Off {
         return;
     }
+
+    let persistent_claim = if mode == GroupMode::AutoRecall {
+        match database.claim_moderation_message(
+            &message.group_id,
+            &message.message_id,
+            &timestamp(),
+        ) {
+            Ok(true) => true,
+            Ok(false) => {
+                state.push_event(QqEventView {
+                    group_id: message.group_id,
+                    message_id: message.message_id,
+                    label: None,
+                    nailong_score: 0.0,
+                    naiwa_frog_score: 0.0,
+                    decision: "SKIP".to_owned(),
+                    action: "SKIPPED_ALREADY_PROCESSED".to_owned(),
+                    classified_images: 0,
+                    failed_images: 0,
+                    created_at: timestamp(),
+                });
+                return;
+            }
+            Err(error) => {
+                state.set_error(format!("QQ 消息幂等记录失败，已跳过撤回：{error}"));
+                return;
+            }
+        }
+    } else {
+        false
+    };
 
     let mut classified = Vec::new();
     let mut failed_images = 0_u32;
@@ -478,15 +588,52 @@ fn handle_group_message(
         .iter()
         .map(|(_, result)| result.clone())
         .collect::<Vec<_>>();
-    let moderation_event = moderation_engine.handle_message(
+    if persistent_claim {
+        let state_name = if results
+            .iter()
+            .any(|result| crate::vision::recall_eligible(result, thresholds))
+        {
+            "RECALL_ATTEMPTED"
+        } else {
+            "SEEN"
+        };
+        if let Err(error) = database.update_moderation_message_state(
+            &message.group_id,
+            &message.message_id,
+            state_name,
+            &timestamp(),
+        ) {
+            state.set_error(format!("QQ 消息幂等状态写入失败，已跳过撤回：{error}"));
+            return;
+        }
+    }
+    let moderation_event = moderation_engine.handle_message_in_group(
         adapter,
+        message.group_id.clone(),
         message.message_id.clone(),
         mode,
         &results,
         thresholds,
     );
-    let action = action_name(moderation_event.action);
+    let action = action_name(moderation_event.action.clone());
     let decision = decision_name(moderation_event.decision);
+    if persistent_claim {
+        let message_state = match moderation_event.action {
+            ModerationAction::Recalled => "RECALLED",
+            ModerationAction::RecallFailed => "RECALL_FAILED",
+            ModerationAction::RecallSkippedAdapterOffline
+            | ModerationAction::RecallSkippedAlreadyProcessed => "RECALL_ATTEMPTED",
+            ModerationAction::None | ModerationAction::Observed => "SEEN",
+        };
+        if let Err(error) = database.update_moderation_message_state(
+            &message.group_id,
+            &message.message_id,
+            message_state,
+            &timestamp(),
+        ) {
+            state.set_error(format!("QQ 消息幂等结果写入失败：{error}"));
+        }
+    }
     let reference_set_version = database.reference_set_version().ok();
     if classified.is_empty() {
         let _ = database.append_moderation_log(&ModerationLogRecord {
@@ -497,6 +644,7 @@ fn handle_group_message(
             nailong_score: None,
             naiwa_frog_score: None,
             reference_set_version,
+            classification_label: None,
             decision: decision.to_owned(),
             action_result: Some(action.to_owned()),
             created_at: timestamp(),
@@ -511,6 +659,7 @@ fn handle_group_message(
                 nailong_score: Some(f64::from(result.nailong_score)),
                 naiwa_frog_score: Some(f64::from(result.naiwa_frog_score)),
                 reference_set_version,
+                classification_label: Some(label_name(result.label).to_owned()),
                 decision: decision.to_owned(),
                 action_result: Some(action.to_owned()),
                 created_at: timestamp(),
@@ -555,11 +704,15 @@ fn best_summary(results: &[ClassificationResult]) -> (Option<String>, f32, f32) 
     (label, nailong_score, naiwa_frog_score)
 }
 
-fn group_view(record: &QQGroupRecord) -> QqGroupView {
+fn group_view(record: &QQGroupRecord, auto_recall_ready: bool) -> QqGroupView {
     QqGroupView {
         group_id: record.group_id.clone(),
         group_name: record.group_name.clone(),
-        mode: effective_mode_name(&record.mode),
+        mode: if record.mode == "AUTO_RECALL" && !auto_recall_ready {
+            "OBSERVE".to_owned()
+        } else {
+            effective_mode_name(&record.mode)
+        },
         recall_threshold: record.recall_threshold,
     }
 }
@@ -572,25 +725,26 @@ fn effective_mode_name(value: &str) -> String {
         .to_owned()
 }
 
-fn normalize_group_view(group: &QqGroupView) -> QqGroupView {
+fn normalize_group_view(group: &QqGroupView, auto_recall_ready: bool) -> QqGroupView {
     QqGroupView {
         group_id: group.group_id.clone(),
         group_name: group.group_name.clone(),
-        mode: effective_mode_name(&group.mode),
+        mode: if group.mode == "AUTO_RECALL" && !auto_recall_ready {
+            "OBSERVE".to_owned()
+        } else {
+            effective_mode_name(&group.mode)
+        },
         recall_threshold: group.recall_threshold,
     }
 }
 
 fn log_event_view(record: &crate::storage::ModerationLogRecord) -> QqEventView {
-    let label = match (record.nailong_score, record.naiwa_frog_score) {
-        (Some(nailong), Some(frog)) if frog > nailong => Some("NAIWA_FROG".to_owned()),
-        (Some(_), Some(_)) => Some("NAILONG".to_owned()),
-        _ => None,
-    };
     QqEventView {
         group_id: record.group_id.clone().unwrap_or_else(|| "-".to_owned()),
         message_id: record.message_id.clone().unwrap_or_else(|| "-".to_owned()),
-        label,
+        // Legacy rows may not have a stored label. Do not reconstruct one
+        // from scores: a score pair is not the same thing as the decision.
+        label: record.classification_label.clone(),
         nailong_score: record.nailong_score.unwrap_or(0.0) as f32,
         naiwa_frog_score: record.naiwa_frog_score.unwrap_or(0.0) as f32,
         decision: record.decision.clone(),
@@ -686,6 +840,8 @@ mod tests {
     };
     use crate::{
         moderation::GroupMode,
+        release,
+        storage::ModerationLogRecord,
         vision::{ClassificationLabel, ClassificationResult, ConfidenceLevel},
     };
 
@@ -694,10 +850,7 @@ mod tests {
         let status = QqServiceState::default().snapshot();
         assert!(!status.connected);
         assert!(!status.token_configured);
-        assert_eq!(
-            status.auto_recall_available,
-            cfg!(feature = "auto-recall-release")
-        );
+        assert!(!status.auto_recall_available);
         assert!(status.groups.is_empty());
         assert!(status.recent_events.is_empty());
     }
@@ -717,9 +870,11 @@ mod tests {
 
     #[test]
     fn auto_recall_requires_the_explicit_release_feature() {
+        let certificate_available = release::embedded_certificate()
+            .is_some_and(|certificate| release::certificate_is_well_formed(&certificate));
         assert_eq!(
             auto_recall_available(),
-            cfg!(feature = "auto-recall-release")
+            cfg!(feature = "auto-recall-release") && certificate_available
         );
         assert!(validate_requested_mode(GroupMode::Off).is_ok());
         assert!(validate_requested_mode(GroupMode::Observe).is_ok());
@@ -746,7 +901,7 @@ mod tests {
             mode: "AUTO_RECALL".to_owned(),
             recall_threshold: 0.98,
         };
-        let normalized = normalize_group_view(&group);
+        let normalized = normalize_group_view(&group, auto_recall_available());
         let expected = if auto_recall_available() {
             "AUTO_RECALL"
         } else {
@@ -793,5 +948,24 @@ mod tests {
         assert_eq!(label.as_deref(), Some("NAIWA_FROG"));
         assert_eq!(nailong_score, 0.91);
         assert_eq!(naiwa_score, 0.96);
+    }
+
+    #[test]
+    fn persisted_legacy_event_does_not_infer_a_label_from_scores() {
+        let event = super::log_event_view(&ModerationLogRecord {
+            group_id: Some("group-1".to_owned()),
+            message_id: Some("message-1".to_owned()),
+            user_id: None,
+            image_sha256: Some("a".repeat(64)),
+            nailong_score: Some(0.91),
+            naiwa_frog_score: Some(0.03),
+            reference_set_version: Some(1),
+            classification_label: None,
+            decision: "PASS".to_owned(),
+            action_result: Some("NONE".to_owned()),
+            created_at: "now".to_owned(),
+        });
+        assert_eq!(event.label, None);
+        assert_eq!(event.nailong_score, 0.91);
     }
 }

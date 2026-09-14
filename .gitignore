@@ -32,6 +32,7 @@ venv/
 *.db
 *.db-shm
 *.db-wal
+validation-certificate.json
 .env
 .env.*
 !.env.example

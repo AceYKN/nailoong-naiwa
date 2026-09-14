@@ -285,6 +285,10 @@ impl OneBotHttpAdapter {
         &self.endpoint
     }
 
+    pub fn token_configured(&self) -> bool {
+        self.token.is_some()
+    }
+
     pub fn subscribed_groups(&self) -> &HashSet<String> {
         &self.subscribed_groups
     }
@@ -477,6 +481,12 @@ impl OneBotHttpAdapter {
                 "OneBot image URL must be a local file or loopback http URL".to_owned(),
             ));
         }
+        if is_unsafe_local_path(reference) {
+            return Err(QQError::Unsupported(
+                "OneBot image reference must stay on a local disk; UNC/device paths are rejected"
+                    .to_owned(),
+            ));
+        }
         let metadata = fs::metadata(reference)
             .map_err(|error| QQError::ImageNotFound(format!("{} ({error})", reference)))?;
         if !metadata.is_file() {
@@ -541,6 +551,19 @@ impl OneBotHttpAdapter {
             "cannot fetch local OneBot image URL: {}",
             last_error.unwrap_or_else(|| "no loopback address resolved".to_owned())
         )))
+    }
+}
+
+fn is_unsafe_local_path(reference: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let normalized = reference.replace('/', "\\");
+        normalized.starts_with(r"\\")
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = reference;
+        false
     }
 }
 
@@ -904,8 +927,8 @@ fn parse_onebot_response(response: &[u8]) -> Result<Value, QQError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_loopback_host, parse_group_message_event, parse_onebot_response, LoopbackEndpoint,
-        OneBotHttpAdapter, OneBotReverseListener,
+        is_loopback_host, is_unsafe_local_path, parse_group_message_event, parse_onebot_response,
+        LoopbackEndpoint, OneBotHttpAdapter, OneBotReverseListener,
     };
     use crate::qq::{QQAdapter, QQError};
     use serde_json::json;
@@ -927,6 +950,16 @@ mod tests {
         assert!(LoopbackEndpoint::parse("http://127.0.0.1:0").is_err());
         assert!(is_loopback_host("127.0.0.1"));
         assert!(!is_loopback_host("example.com"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn local_image_reader_rejects_unc_and_device_paths() {
+        assert!(is_unsafe_local_path(r"\\server\share\image.png"));
+        assert!(is_unsafe_local_path(r"\\.\PIPE\image.png"));
+        assert!(is_unsafe_local_path(r"\\?\C:\image.png"));
+        assert!(!is_unsafe_local_path(r"C:\cache\image.png"));
+        assert!(!is_unsafe_local_path(r"cache\image.png"));
     }
 
     #[test]

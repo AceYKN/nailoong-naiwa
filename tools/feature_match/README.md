@@ -11,7 +11,8 @@ The build needs these user-local paths:
 $env:OPENCV_DIR = "C:\path\to\opencv\build"
 $env:OPENCV_INCLUDE_PATHS = "$env:OPENCV_DIR\include"
 $env:OPENCV_LINK_PATHS = "$env:OPENCV_DIR\x64\vc16\lib"
-$env:OPENCV_LINK_LIBS = "opencv_world4130"
+$env:OPENCV_WORLD_NAME = "opencv_world4130"
+$env:OPENCV_LINK_LIBS = $env:OPENCV_WORLD_NAME
 $env:LIBCLANG_PATH = "C:\path\to\llvm\bin"
 $env:Path = "$env:OPENCV_DIR\x64\vc16\bin;$env:LIBCLANG_PATH;$env:Path"
 ```
@@ -54,7 +55,7 @@ pnpm --dir apps/desktop tauri:build:opencv
 
 The OpenCV-only Tauri config runs
 `stage-opencv-runtime.ps1` after the release binary is built. The script
-copies the selected `opencv_world*.dll` beside the executable before NSIS
-bundling; the config explicitly includes that staged DLL as a bundle resource,
-and fails closed if the runtime DLL is missing. The DLL is a local build input
-and is intentionally not committed to Git.
+copies the exact `$env:OPENCV_WORLD_NAME.dll` beside the executable before NSIS
+bundling; the config explicitly includes the pinned `opencv_world4130.dll` as a
+bundle resource, and fails closed if the name or runtime DLL does not match. The
+DLL is a local build input and is intentionally not committed to Git.

@@ -182,16 +182,18 @@ pub struct MessagePipelineOutcome {
 
 /// Message-level decision engine. A QQ message is the unit of recall even if
 /// it contains several images. Failed recall attempts are recorded as
-/// processed so the default retry count remains zero.
+/// processed so the default retry count remains zero. The in-memory key is
+/// namespaced by group; the service adds the same boundary to persistent
+/// idempotency storage.
 #[derive(Debug, Default)]
 pub struct MessageModerationEngine {
-    processed_message_ids: HashSet<String>,
+    processed_message_keys: HashSet<String>,
     event_log: Vec<ModerationEvent>,
 }
 
 impl MessageModerationEngine {
     pub fn processed_message_ids(&self) -> &HashSet<String> {
-        &self.processed_message_ids
+        &self.processed_message_keys
     }
 
     /// Returns the bounded in-memory moderation audit trail. A host can copy
@@ -209,7 +211,26 @@ impl MessageModerationEngine {
         classifications: &[ClassificationResult],
         thresholds: VisionThresholds,
     ) -> ModerationEvent {
-        let event = self.decide_message(adapter, message_id, mode, classifications, thresholds);
+        self.handle_message_in_group(adapter, "", message_id, mode, classifications, thresholds)
+    }
+
+    pub fn handle_message_in_group<A: QQAdapter>(
+        &mut self,
+        adapter: &mut A,
+        group_id: impl Into<String>,
+        message_id: impl Into<String>,
+        mode: GroupMode,
+        classifications: &[ClassificationResult],
+        thresholds: VisionThresholds,
+    ) -> ModerationEvent {
+        let event = self.decide_message(
+            adapter,
+            group_id.into(),
+            message_id,
+            mode,
+            classifications,
+            thresholds,
+        );
         const MAX_EVENT_LOG: usize = 512;
         if self.event_log.len() >= MAX_EVENT_LOG {
             self.event_log.remove(0);
@@ -221,6 +242,7 @@ impl MessageModerationEngine {
     fn decide_message<A: QQAdapter>(
         &mut self,
         adapter: &mut A,
+        group_id: String,
         message_id: impl Into<String>,
         mode: GroupMode,
         classifications: &[ClassificationResult],
@@ -248,7 +270,8 @@ impl MessageModerationEngine {
             };
         }
 
-        if !self.processed_message_ids.insert(message_id.clone()) {
+        let message_key = format!("{group_id}\0{message_id}");
+        if !self.processed_message_keys.insert(message_key) {
             return ModerationEvent {
                 message_id,
                 decision,
@@ -409,6 +432,32 @@ mod tests {
     }
 
     #[test]
+    fn in_memory_idempotency_is_scoped_by_group() {
+        let mut adapter = MockQQAdapter::default();
+        adapter.connect().expect("mock connects");
+        let mut engine = MessageModerationEngine::default();
+        let first = engine.handle_message_in_group(
+            &mut adapter,
+            "group-a",
+            "message-1",
+            GroupMode::AutoRecall,
+            &[frog_result(0.99)],
+            VisionThresholds::default(),
+        );
+        let second = engine.handle_message_in_group(
+            &mut adapter,
+            "group-b",
+            "message-1",
+            GroupMode::AutoRecall,
+            &[frog_result(0.99)],
+            VisionThresholds::default(),
+        );
+        assert_eq!(first.action, ModerationAction::Recalled);
+        assert_eq!(second.action, ModerationAction::Recalled);
+        assert_eq!(adapter.recalled_messages(), &["message-1", "message-1"]);
+    }
+
+    #[test]
     fn offline_auto_recall_is_not_attempted_and_is_not_retried() {
         let mut adapter = MockQQAdapter::default();
         let mut engine = MessageModerationEngine::default();
@@ -463,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_model_scores_fail_closed_without_recall() {
+    fn invalid_classification_scores_fail_closed_without_recall() {
         let mut adapter = MockQQAdapter::default();
         adapter.connect().expect("mock connects");
         let mut engine = MessageModerationEngine::default();

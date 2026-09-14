@@ -11,6 +11,7 @@
 - OpenCV SIFT、RANSAC 和版本化描述子缓存已接入 feature-gated 后端；未设置原生依赖时桌面识别按钮仍会 fail closed，不会伪造 v2 识别结果。
 - OneBot 11 loopback Adapter 已接入桌面 QQ 页面：连接、反向事件、OFF/OBSERVE/AUTO_RECALL 群模式和 moderation_log 持久化均有本机 mock E2E；默认仍为 OFF。
 - QQ 默认保持 `OFF`。真实 Adapter、Observe 和 Auto Recall 都必须在本地测试与人工验收后才会开放。
+- `AUTO_RECALL` 还额外要求冻结验证门禁生成的 certificate、精确未变更的 Reference Bank 和 OneBot Token；普通构建与证书失配时自动保持 `OBSERVE`。
 - 公开仓库已创建为 [`AceYKN/nailoong-naiwa`](https://github.com/AceYKN/nailoong-naiwa)；公开内容只包含干净源码和文档，不包含 QQ 缓存、验证图片、模型、安装包或密钥。
 - v1 的数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；不会删除用户 QQ 缓存图片。
 
@@ -38,6 +39,8 @@ pnpm --dir apps/desktop tauri:dev
 pnpm --dir apps/desktop tauri:dev:opencv
 # 在已设置 OpenCV/Clang 环境变量后生成带 runtime DLL 的 NSIS 包
 pnpm --dir apps/desktop tauri:build:opencv
+# 仅在 release gate 成功并设置 NLNF_VALIDATION_CERTIFICATE_JSON 后使用
+pnpm --dir apps/desktop tauri:build:opencv:recall
 ```
 
 Rust 核心测试：
@@ -58,7 +61,7 @@ OpenCV 是生产视觉后端且默认 feature-gated。Windows 原生依赖、环
 
 1. 一类至少 1 张、最多 10 张参考图；新增参考图立即递增 `reference_set_version`。
 2. 识别失败或证据不足返回 `UNKNOWN`，不生成猜测概率。
-3. QQ `AUTO_RECALL` 必须同时满足高分、严格 margin、最小 inliers、inlier ratio、coverage、重投影误差和 `VERY_HIGH` confidence；未通过冻结验证门禁的普通构建不会开放该模式。
+3. QQ `AUTO_RECALL` 必须同时满足高分、严格 margin、最小 inliers、inlier ratio、coverage、重投影误差和 `VERY_HIGH` confidence；还必须使用嵌入且未失配的冻结验证 certificate，未通过冻结验证门禁的普通构建不会开放该模式。
 4. 图片默认只在本机处理；v2 不调用云端预标注服务，也不会上传新图片。
 
 完整阶段、迁移边界和未完成验收项见 [docs/ROADMAP.md](docs/ROADMAP.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/ACCEPTANCE_MATRIX.md](docs/ACCEPTANCE_MATRIX.md)。

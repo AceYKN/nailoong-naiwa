@@ -9,6 +9,7 @@ pub mod phash;
 pub mod qq;
 pub mod qq_service;
 pub mod references;
+pub mod release;
 #[cfg(windows)]
 pub mod storage;
 #[cfg(not(windows))]
@@ -135,6 +136,18 @@ pub(crate) fn classify_image_bytes(
         let reference_set_version = database
             .reference_set_version()
             .map_err(|error| error.to_string())?;
+        let image_sha256 = decoded.inspection.sha256.clone();
+        if let Ok(Some(cached)) =
+            database.find_prediction_cache(&image_sha256, reference_set_version)
+        {
+            if let Some(serialized) = cached.classification_json {
+                if let Ok(result) =
+                    serde_json::from_str::<vision::ClassificationResult>(&serialized)
+                {
+                    return Ok(result);
+                }
+            }
+        }
         let records = database
             .list_references()
             .map_err(|error| error.to_string())?;
@@ -156,8 +169,6 @@ pub(crate) fn classify_image_bytes(
         let mut references = Vec::with_capacity(records.len());
         for record in records {
             let class = parse_reference_class(&record.class)?;
-            let reference_bytes = std::fs::read(&record.file_path)
-                .map_err(|error| format!("cannot read reference {}: {error}", record.id))?;
             let cached = record
                 .descriptor_path
                 .as_deref()
@@ -170,6 +181,8 @@ pub(crate) fn classify_image_bytes(
                 references.push(features);
                 continue;
             }
+            let reference_bytes = std::fs::read(&record.file_path)
+                .map_err(|error| format!("cannot read reference {}: {error}", record.id))?;
             let reference_image =
                 decoder::decode_image(&reference_bytes, image_policy::MAX_SAMPLE_FRAMES)?;
             let frame = reference_image
@@ -185,18 +198,20 @@ pub(crate) fn classify_image_bytes(
             references.push(features);
         }
         let result = engine.classify_frames(&decoded.frames, &references)?;
-        database
-            .record_prediction_cache(&storage::PredictionCacheRecord {
-                image_sha256: decoded.inspection.sha256,
-                reference_set_version,
-                label: classification_label_name(result.label).to_owned(),
-                nailong_score: f64::from(result.nailong_score),
-                naiwa_frog_score: f64::from(result.naiwa_frog_score),
-                confidence_level: confidence_level_name(result.confidence_level).to_owned(),
-                source: "opencv-sift".to_owned(),
-                created_at: current_timestamp(),
-            })
-            .map_err(|error| error.to_string())?;
+        let classification_json = serde_json::to_string(&result).ok();
+        if let Err(error) = database.record_prediction_cache(&storage::PredictionCacheRecord {
+            image_sha256,
+            reference_set_version,
+            label: classification_label_name(result.label).to_owned(),
+            nailong_score: f64::from(result.nailong_score),
+            naiwa_frog_score: f64::from(result.naiwa_frog_score),
+            confidence_level: confidence_level_name(result.confidence_level).to_owned(),
+            classification_json,
+            source: "opencv-sift".to_owned(),
+            created_at: current_timestamp(),
+        }) {
+            eprintln!("prediction cache write skipped: {error}");
+        }
         Ok(result)
     }
 
@@ -377,7 +392,7 @@ fn add_reference(
         height: asset.height,
         created_at: current_timestamp(),
     };
-    if let Err(error) = database.record_reference(&record) {
+    if let Err(error) = database.record_reference_and_bump_version(&record) {
         if let Some(path) = &descriptor_path {
             let _ = std::fs::remove_file(path);
         }
@@ -388,14 +403,6 @@ fn add_reference(
             error.to_string()
         };
         return Err(message);
-    }
-    if let Err(error) = database.bump_reference_set_version() {
-        let _ = database.delete_reference(&asset.id);
-        if let Some(path) = &descriptor_path {
-            let _ = std::fs::remove_file(path);
-        }
-        let _ = std::fs::remove_file(&asset.file_path);
-        return Err(error.to_string());
     }
     Ok(reference_info(record))
 }
@@ -413,21 +420,28 @@ fn remove_reference(app: tauri::AppHandle, id: String) -> Result<(), String> {
         .find(|record| record.id == id)
         .ok_or_else(|| "reference not found".to_owned())?;
     database
-        .delete_reference(&id)
+        .delete_reference_and_bump_version(&id)
         .map_err(|error| error.to_string())?;
+    let mut cleanup_failures = Vec::new();
     if let Err(error) = std::fs::remove_file(&record.file_path) {
         if error.kind() != std::io::ErrorKind::NotFound {
-            return Err(format!(
-                "reference metadata removed but image cleanup failed: {error}"
-            ));
+            cleanup_failures.push(format!("image: {error}"));
         }
     }
     if let Some(path) = &record.descriptor_path {
-        let _ = std::fs::remove_file(path);
+        if let Err(error) = std::fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                cleanup_failures.push(format!("descriptor: {error}"));
+            }
+        }
     }
-    database
-        .bump_reference_set_version()
-        .map_err(|error| error.to_string())?;
+    if !cleanup_failures.is_empty() {
+        eprintln!(
+            "reference {} removed from the database; orphan cleanup deferred: {}",
+            id,
+            cleanup_failures.join("; ")
+        );
+    }
     Ok(())
 }
 

@@ -5,20 +5,20 @@
 //! scoring, ambiguity handling, and QQ recall gates remain deterministic and
 //! unit-testable on every platform.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const MAX_REFERENCES_PER_CLASS: usize = 10;
 pub const MIN_ORDINARY_GEOMETRIC_INLIERS: u32 = 6;
 pub const MAX_ORDINARY_PHASH_SHORTCUT_DISTANCE: u32 = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ReferenceClass {
     Nailong,
     NaiwaFrog,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ClassificationLabel {
     Nailong,
@@ -27,7 +27,7 @@ pub enum ClassificationLabel {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConfidenceLevel {
     None,
@@ -37,7 +37,7 @@ pub enum ConfidenceLevel {
     VeryHigh,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchResult {
     pub reference_id: String,
@@ -81,7 +81,7 @@ impl Default for VisionThresholds {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassificationResult {
     pub label: ClassificationLabel,

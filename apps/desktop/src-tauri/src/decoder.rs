@@ -1,4 +1,4 @@
-//! Bounded desktop image decoding and model-input preprocessing.
+//! Bounded desktop image decoding and vision-frame preparation.
 //!
 //! The header policy is checked before handing bytes to a decoder. Windows
 //! uses the system WIC backend for supported formats and streams only the
@@ -23,9 +23,9 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
 
-pub const MODEL_WIDTH: u32 = 224;
-pub const MODEL_HEIGHT: u32 = 224;
-pub const MODEL_CHANNELS: usize = 3;
+pub const VISION_FRAME_WIDTH: u32 = 224;
+pub const VISION_FRAME_HEIGHT: u32 = 224;
+pub const RGB_CHANNELS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedFrame {
@@ -48,11 +48,11 @@ pub struct DecodeSummary {
     pub format: ImageFormat,
     pub source_frame_count: u32,
     pub sampled_frame_indices: Vec<u32>,
-    pub tensor_shape: [usize; 4],
+    pub frame_shape: [usize; 4],
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PreprocessedBatch {
+pub struct PreprocessedFrameBatch {
     pub shape: [usize; 4],
     pub data: Vec<f32>,
 }
@@ -92,7 +92,7 @@ pub fn decode_image(bytes: &[u8], max_sample_frames: u32) -> Result<DecodedImage
             ImageFormat::Webp => decode_with_pure_rust_webp(bytes, &sampled_frame_indices)?,
             format => {
                 return Err(format!(
-                    "{} decoder backend is not installed; refusing to fabricate model input",
+                    "{} decoder backend is not installed; refusing to fabricate decoded frames",
                     format_name(format)
                 ));
             }
@@ -112,12 +112,12 @@ pub fn summarize(bytes: &[u8], max_sample_frames: u32) -> Result<DecodeSummary, 
         format: decoded.inspection.format,
         source_frame_count: decoded.inspection.frame_count,
         sampled_frame_indices: decoded.sampled_frame_indices,
-        tensor_shape: batch.shape,
+        frame_shape: batch.shape,
     })
 }
 
-/// Match the Python sampler: retain every frame for short animations and use
-/// evenly spaced endpoint-inclusive indices for longer ones.
+/// Retain every frame for short animations and use evenly spaced,
+/// endpoint-inclusive indices for longer ones.
 pub fn sample_indices(frame_count: u32, max_sample_frames: u32) -> Vec<u32> {
     if frame_count == 0 || max_sample_frames == 0 {
         return Vec::new();
@@ -144,37 +144,37 @@ fn python_round_nonnegative(value: f64) -> u32 {
     }
 }
 
-/// Produce the exact NCHW/normalisation contract used by the Python model.
+/// Produce a bounded NCHW RGB frame batch for compatibility diagnostics.
 /// The resize is a separable Lanczos-3 implementation so it does not depend
 /// on a platform image library.
-pub fn preprocess(frames: &[DecodedFrame]) -> Result<PreprocessedBatch, String> {
+pub fn preprocess(frames: &[DecodedFrame]) -> Result<PreprocessedFrameBatch, String> {
     if frames.is_empty() {
-        return Err("cannot preprocess an empty frame batch".to_owned());
+        return Err("cannot prepare an empty frame batch".to_owned());
     }
-    let plane_size = MODEL_WIDTH as usize * MODEL_HEIGHT as usize;
-    let mut data = Vec::with_capacity(frames.len() * MODEL_CHANNELS * plane_size);
+    let plane_size = VISION_FRAME_WIDTH as usize * VISION_FRAME_HEIGHT as usize;
+    let mut data = Vec::with_capacity(frames.len() * RGB_CHANNELS * plane_size);
     let means = [0.485_f32, 0.456, 0.406];
     let stds = [0.229_f32, 0.224, 0.225];
 
     for frame in frames {
         let resized = resize_lanczos3(frame)?;
-        let (pixels, remainder) = resized.as_chunks::<MODEL_CHANNELS>();
+        let (pixels, remainder) = resized.as_chunks::<RGB_CHANNELS>();
         if !remainder.is_empty() {
             return Err("resized RGB buffer is not channel aligned".to_owned());
         }
-        for channel in 0..MODEL_CHANNELS {
+        for channel in 0..RGB_CHANNELS {
             for pixel in pixels {
                 let value = f32::from(pixel[channel]) / 255.0;
                 data.push((value - means[channel]) / stds[channel]);
             }
         }
     }
-    Ok(PreprocessedBatch {
+    Ok(PreprocessedFrameBatch {
         shape: [
             frames.len(),
-            MODEL_CHANNELS,
-            MODEL_HEIGHT as usize,
-            MODEL_WIDTH as usize,
+            RGB_CHANNELS,
+            VISION_FRAME_HEIGHT as usize,
+            VISION_FRAME_WIDTH as usize,
         ],
         data,
     })
@@ -489,10 +489,10 @@ fn resize_lanczos3(frame: &DecodedFrame) -> Result<Vec<u8>, String> {
     if expected != Some(frame.rgb.len()) || frame.width == 0 || frame.height == 0 {
         return Err("decoded RGB buffer has invalid dimensions".to_owned());
     }
-    let horizontal = contributions(frame.width as usize, MODEL_WIDTH as usize);
-    let vertical = contributions(frame.height as usize, MODEL_HEIGHT as usize);
-    let mut intermediate = vec![0.0_f32; MODEL_HEIGHT as usize * frame.width as usize * 3];
-    for y in 0..MODEL_HEIGHT as usize {
+    let horizontal = contributions(frame.width as usize, VISION_FRAME_WIDTH as usize);
+    let vertical = contributions(frame.height as usize, VISION_FRAME_HEIGHT as usize);
+    let mut intermediate = vec![0.0_f32; VISION_FRAME_HEIGHT as usize * frame.width as usize * 3];
+    for y in 0..VISION_FRAME_HEIGHT as usize {
         for x in 0..frame.width as usize {
             for channel in 0..3 {
                 let mut value = 0.0;
@@ -506,16 +506,16 @@ fn resize_lanczos3(frame: &DecodedFrame) -> Result<Vec<u8>, String> {
             }
         }
     }
-    let mut output = vec![0_u8; MODEL_HEIGHT as usize * MODEL_WIDTH as usize * 3];
-    for y in 0..MODEL_HEIGHT as usize {
-        for x in 0..MODEL_WIDTH as usize {
+    let mut output = vec![0_u8; VISION_FRAME_HEIGHT as usize * VISION_FRAME_WIDTH as usize * 3];
+    for y in 0..VISION_FRAME_HEIGHT as usize {
+        for x in 0..VISION_FRAME_WIDTH as usize {
             for channel in 0..3 {
                 let mut value = 0.0;
                 for (source_x, weight) in &horizontal[x] {
                     value += intermediate[(y * frame.width as usize + *source_x) * 3 + channel]
                         * *weight;
                 }
-                output[(y * MODEL_WIDTH as usize + x) * 3 + channel] =
+                output[(y * VISION_FRAME_WIDTH as usize + x) * 3 + channel] =
                     value.clamp(0.0, 255.0).round() as u8;
             }
         }
@@ -688,7 +688,7 @@ mod tests {
 
     use super::{
         apply_exif_orientation, decode_image, decode_with_pure_rust_webp, exif_orientation,
-        preprocess, sample_indices, DecodedFrame, MODEL_HEIGHT, MODEL_WIDTH,
+        preprocess, sample_indices, DecodedFrame, VISION_FRAME_HEIGHT, VISION_FRAME_WIDTH,
     };
 
     fn png_bytes() -> Vec<u8> {
@@ -713,17 +713,22 @@ mod tests {
     }
 
     #[test]
-    fn decodes_static_png_and_matches_model_tensor_shape() {
+    fn decodes_static_png_and_matches_vision_frame_shape() {
         let decoded = decode_image(&png_bytes(), 12).expect("decode PNG");
         assert_eq!(decoded.frames.len(), 1);
         let batch = preprocess(&decoded.frames).expect("preprocess PNG");
         assert_eq!(
             batch.shape,
-            [1, 3, MODEL_HEIGHT as usize, MODEL_WIDTH as usize]
+            [
+                1,
+                3,
+                VISION_FRAME_HEIGHT as usize,
+                VISION_FRAME_WIDTH as usize
+            ]
         );
         assert_eq!(
             batch.data.len(),
-            3 * MODEL_WIDTH as usize * MODEL_HEIGHT as usize
+            3 * VISION_FRAME_WIDTH as usize * VISION_FRAME_HEIGHT as usize
         );
         assert!(batch.data.iter().all(|value| value.is_finite()));
     }
@@ -734,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_preprocess_batch() {
+    fn rejects_empty_frame_batch() {
         assert!(preprocess(&[]).is_err());
     }
 

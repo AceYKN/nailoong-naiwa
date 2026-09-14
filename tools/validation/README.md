@@ -32,9 +32,10 @@ powershell -ExecutionPolicy Bypass -File tools/validation/new-validation-manifes
 The release gate requires at least 100 Nailong rows, 100 Naiwa Frog rows,
 1,000 `OTHER` rows, and 50 files whose decoded format is GIF. It also requires
 every manifest path to exist, every row to process, both target classes to be
-classified correctly, no `OTHER` row to become a target, and zero strict
-`AUTO_RECALL` candidates among `OTHER` rows. The Rust test additionally checks
-the actual decoded format, so a `.gif` filename alone is not enough.
+classified correctly, neither target class to be confused with the other, no
+`OTHER` row to become a target, and zero strict `AUTO_RECALL` candidates among
+non-frog rows. The Rust test additionally checks the actual decoded format, so
+a `.gif` filename alone is not enough.
 
 Run it after configuring the user-local OpenCV and Clang paths described in
 `tools/feature_match/README.md`:
@@ -51,10 +52,27 @@ powershell -ExecutionPolicy Bypass -File tools/validation/run-release-gate.ps1 `
 
 Do not use unreviewed QQ-cache files as truth labels. A large cache count is
 not evidence of 100/100/1000 correct samples; the labels must be independently
-reviewed before enabling the gate. Until this command passes on a frozen
-corpus, `AUTO_RECALL` remains disabled by the application policy.
+reviewed before enabling the gate. The runner requires a clean Git checkout and
+writes `validation-certificate.json` beside the manifest. That certificate
+binds the tested Git revision, the exact bytes of the two supplied reference
+images, the decision thresholds, the sample counts and the zero-false-recall
+result. Until this command passes on a frozen corpus, `AUTO_RECALL` remains
+disabled by the application policy.
 
 The runner validates the corpus with the OpenCV backend but does not enable the
 runtime release feature. Only after it exits successfully may a release build
-explicitly add `auto-recall-release` alongside `opencv-backend`; ordinary builds
-must omit that feature and remain unable to activate `AUTO_RECALL`.
+explicitly add `auto-recall-release` alongside `opencv-backend`. The release
+build must embed the generated certificate and use the same two reference
+images as its initial Reference Bank:
+
+```powershell
+$env:NLNF_VALIDATION_CERTIFICATE_JSON = [System.IO.File]::ReadAllText(
+  'D:\path\to\validation-root\validation-certificate.json'
+)
+pnpm --dir apps/desktop tauri:build:opencv:recall
+```
+
+Adding, deleting or changing a reference later invalidates the certificate and
+automatically downgrades the stored group mode to `OBSERVE`; rerun the gate for
+the new exact Reference Bank. Ordinary builds must omit the release feature and
+remain unable to activate `AUTO_RECALL`.
