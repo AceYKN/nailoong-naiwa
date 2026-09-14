@@ -14,6 +14,10 @@ bin/
 # User-local images and obsolete generated artifacts; never publish them.
 datasets/
 models/
+references/
+validation-root/
+validation-candidates/
+artifacts/
 *.onnx
 *.pt
 *.pth
