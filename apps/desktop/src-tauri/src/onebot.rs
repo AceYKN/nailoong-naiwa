@@ -926,9 +926,11 @@ fn parse_onebot_response(response: &[u8]) -> Result<Value, QQError> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::is_unsafe_local_path;
     use super::{
-        is_loopback_host, is_unsafe_local_path, parse_group_message_event, parse_onebot_response,
-        LoopbackEndpoint, OneBotHttpAdapter, OneBotReverseListener,
+        is_loopback_host, parse_group_message_event, parse_onebot_response, LoopbackEndpoint,
+        OneBotHttpAdapter, OneBotReverseListener,
     };
     use crate::qq::{QQAdapter, QQError};
     use serde_json::json;
