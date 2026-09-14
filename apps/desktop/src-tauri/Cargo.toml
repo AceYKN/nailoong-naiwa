@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = []
 opencv-backend = ["dep:opencv"]
-auto-recall-release = []
+auto-recall-release = ["opencv-backend"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
