@@ -28,6 +28,31 @@ const DEFAULT_GROUP_RECALL_THRESHOLD: f64 = 0.98;
 const MAX_RECENT_EVENTS: usize = 100;
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+fn auto_recall_available() -> bool {
+    cfg!(feature = "auto-recall-release")
+}
+
+fn validate_requested_mode(mode: GroupMode) -> Result<(), String> {
+    if mode == GroupMode::AutoRecall && !auto_recall_available() {
+        return Err(
+            "AUTO_RECALL 尚未开放：请先通过冻结验证门禁，并使用 auto-recall-release 特性构建"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn effective_group_mode(mode: GroupMode) -> GroupMode {
+    if mode == GroupMode::AutoRecall && !auto_recall_available() {
+        // A stale database must not turn a normal build into an active recall
+        // worker. Keep observing so the event remains visible and no delete
+        // action can occur until the release feature is explicitly built.
+        GroupMode::Observe
+    } else {
+        mode
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QqGroupView {
@@ -59,6 +84,7 @@ pub struct QqStatus {
     pub action_endpoint: Option<String>,
     pub event_endpoint: Option<String>,
     pub token_configured: bool,
+    pub auto_recall_available: bool,
     pub groups: Vec<QqGroupView>,
     pub recent_events: Vec<QqEventView>,
     pub last_error: Option<String>,
@@ -95,6 +121,7 @@ impl QqServiceState {
             action_endpoint: runtime.action_endpoint.clone(),
             event_endpoint: runtime.event_endpoint.clone(),
             token_configured: runtime.token_configured,
+            auto_recall_available: auto_recall_available(),
             groups: runtime.groups.clone(),
             recent_events: runtime.recent_events.iter().cloned().collect(),
             last_error: runtime.last_error.clone(),
@@ -251,6 +278,7 @@ pub fn connect_qq(
         action_endpoint: runtime.action_endpoint.clone(),
         event_endpoint: runtime.event_endpoint.clone(),
         token_configured: runtime.token_configured,
+        auto_recall_available: auto_recall_available(),
         groups: runtime.groups.clone(),
         recent_events: runtime.recent_events.iter().cloned().collect(),
         last_error: runtime.last_error.clone(),
@@ -295,6 +323,7 @@ pub fn set_qq_group_mode(
         return Err("QQ 群号不能为空".to_owned());
     }
     let mode = parse_group_mode(&mode)?;
+    validate_requested_mode(mode)?;
     let database = crate::open_database(&app)?;
     let previous = database
         .find_qq_group(&group_id)
@@ -409,13 +438,14 @@ fn handle_group_message(
     }) else {
         return;
     };
-    let mode = match parse_group_mode(&group.mode) {
+    let configured_mode = match parse_group_mode(&group.mode) {
         Ok(mode) => mode,
         Err(error) => {
             state.set_error(error);
             return;
         }
     };
+    let mode = effective_group_mode(configured_mode);
     if mode == GroupMode::Off {
         return;
     }
@@ -633,7 +663,10 @@ fn classify_bytes_for_qq(_app: &AppHandle, _bytes: &[u8]) -> Result<Classificati
 
 #[cfg(test)]
 mod tests {
-    use super::{best_summary, mode_name, parse_group_mode, QqServiceState};
+    use super::{
+        auto_recall_available, best_summary, effective_group_mode, mode_name, parse_group_mode,
+        validate_requested_mode, QqServiceState,
+    };
     use crate::{
         moderation::GroupMode,
         vision::{ClassificationLabel, ClassificationResult, ConfidenceLevel},
@@ -644,6 +677,10 @@ mod tests {
         let status = QqServiceState::default().snapshot();
         assert!(!status.connected);
         assert!(!status.token_configured);
+        assert_eq!(
+            status.auto_recall_available,
+            cfg!(feature = "auto-recall-release")
+        );
         assert!(status.groups.is_empty());
         assert!(status.recent_events.is_empty());
     }
@@ -659,6 +696,29 @@ mod tests {
             assert_eq!(mode_name(mode), name);
         }
         assert!(parse_group_mode("RECALL_EVERYTHING").is_err());
+    }
+
+    #[test]
+    fn auto_recall_requires_the_explicit_release_feature() {
+        assert_eq!(
+            auto_recall_available(),
+            cfg!(feature = "auto-recall-release")
+        );
+        assert!(validate_requested_mode(GroupMode::Off).is_ok());
+        assert!(validate_requested_mode(GroupMode::Observe).is_ok());
+        if auto_recall_available() {
+            assert!(validate_requested_mode(GroupMode::AutoRecall).is_ok());
+            assert_eq!(
+                effective_group_mode(GroupMode::AutoRecall),
+                GroupMode::AutoRecall
+            );
+        } else {
+            assert!(validate_requested_mode(GroupMode::AutoRecall).is_err());
+            assert_eq!(
+                effective_group_mode(GroupMode::AutoRecall),
+                GroupMode::Observe
+            );
+        }
     }
 
     #[test]

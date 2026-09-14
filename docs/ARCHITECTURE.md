@@ -85,7 +85,9 @@ connection; the action endpoint and reverse-event listener must both resolve
 to loopback. The Token stays in the worker's memory and is omitted from the
 status payload and logs. `OFF` ignores image events, `OBSERVE` records
 `WOULD_RECALL` candidates without calling `delete_msg`, and `AUTO_RECALL` is
-guarded by a UI confirmation plus the deterministic geometry gates. Recent
+available only in an explicit release-feature build after the frozen gate,
+then guarded by a UI confirmation plus the deterministic geometry gates. A
+normal build downgrades stale AUTO_RECALL settings to OBSERVE. Recent
 events are held in a bounded in-memory view and persisted in `moderation_log`
 so they can be recovered after restart.
 

@@ -40,6 +40,7 @@ const fallbackQqStatus: QqStatus = {
   actionEndpoint: null,
   eventEndpoint: null,
   tokenConfigured: false,
+  autoRecallAvailable: false,
   groups: [],
   recentEvents: [],
   lastError: null,
@@ -701,6 +702,10 @@ function App() {
   }, []);
 
   const handleQqModeChange = useCallback(async (group: QqStatus["groups"][number], mode: QqMode) => {
+    if (mode === "AUTO_RECALL" && !qqStatus.autoRecallAvailable) {
+      setQqError("AUTO_RECALL 尚未开放：请先通过冻结验证门禁并使用 release 特性构建");
+      return;
+    }
     if (mode === "AUTO_RECALL" && !window.confirm("AUTO_RECALL 会在严格几何证据通过后调用 QQ 撤回消息。确认开启这个群的自动撤回吗？")) {
       return;
     }
@@ -741,7 +746,7 @@ function App() {
       </section>
       <section className="settings-card">
         <div className="section-heading compact-heading"><div><p className="eyebrow">GROUP MODES</p><h2>群组安全策略</h2></div><span className="count-badge">{qqStatus.groups.length} 个群</span></div>
-        <p className="settings-note">OFF 不处理图片；OBSERVE 只记录 WOULD_RECALL；AUTO_RECALL 需要严格阈值、几何证据和二次确认。</p>
+        <p className="settings-note">OFF 不处理图片；OBSERVE 只记录 WOULD_RECALL；AUTO_RECALL 还需要冻结验证门禁、release 特性和二次确认。当前状态：{qqStatus.autoRecallAvailable ? "已开放" : "未开放"}。</p>
         {qqStatus.groups.length === 0 ? <div className="empty-state reference-empty"><p>尚未发现 QQ 群</p><small>连接成功后会从 OneBot 读取群列表。</small></div> : (
           <div className="qq-group-list">
             {qqStatus.groups.map((group) => (
@@ -750,7 +755,7 @@ function App() {
                 <select value={group.mode} onChange={(event) => void handleQqModeChange(group, event.target.value as QqMode)} disabled={qqBusy}>
                   <option value="OFF">OFF</option>
                   <option value="OBSERVE">OBSERVE</option>
-                  <option value="AUTO_RECALL">AUTO_RECALL</option>
+                  <option value="AUTO_RECALL" disabled={!qqStatus.autoRecallAvailable}>AUTO_RECALL{qqStatus.autoRecallAvailable ? "" : "（未开放）"}</option>
                 </select>
               </div>
             ))}

@@ -58,7 +58,7 @@ OpenCV 是生产视觉后端且默认 feature-gated。Windows 原生依赖、环
 
 1. 一类至少 1 张、最多 10 张参考图；新增参考图立即递增 `reference_set_version`。
 2. 识别失败或证据不足返回 `UNKNOWN`，不生成猜测概率。
-3. QQ `AUTO_RECALL` 必须同时满足高分、严格 margin、最小 inliers、inlier ratio、coverage、重投影误差和 `VERY_HIGH` confidence。
+3. QQ `AUTO_RECALL` 必须同时满足高分、严格 margin、最小 inliers、inlier ratio、coverage、重投影误差和 `VERY_HIGH` confidence；未通过冻结验证门禁的普通构建不会开放该模式。
 4. 图片默认只在本机处理；v2 不调用云端预标注服务，也不会上传新图片。
 
 完整阶段、迁移边界和未完成验收项见 [docs/ROADMAP.md](docs/ROADMAP.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/ACCEPTANCE_MATRIX.md](docs/ACCEPTANCE_MATRIX.md)。

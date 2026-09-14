@@ -63,6 +63,7 @@
 
 - [x] 将 `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 和动画多帧条件固化为可执行决策门禁
 - [x] 提供独立于运行时的冻结验证 manifest 生成器与 release-gate runner；未满足数据门槛时 fail closed
+- [x] 普通构建默认拒绝 `AUTO_RECALL`，旧数据库配置自动降级为 `OBSERVE`；只有显式 `auto-recall-release` 特性构建才可进入后续发布门禁
 - [ ] `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 全部通过
 - [ ] 100+ 奶龙、100+ 奶蛙、1000+ 其他、50+ GIF 的冻结验证材料
 - [x] Mock 重复事件、断线、图片获取失败和撤回失败测试（`qq.rs` 覆盖 at-most-once、offline、download/classifier failure、recall failure）

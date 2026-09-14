@@ -124,6 +124,7 @@ export interface QqStatus {
   actionEndpoint: string | null;
   eventEndpoint: string | null;
   tokenConfigured: boolean;
+  autoRecallAvailable: boolean;
   groups: QqGroupView[];
   recentEvents: QqEventView[];
   lastError: string | null;

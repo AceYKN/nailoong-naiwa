@@ -53,3 +53,8 @@ Do not use unreviewed QQ-cache files as truth labels. A large cache count is
 not evidence of 100/100/1000 correct samples; the labels must be independently
 reviewed before enabling the gate. Until this command passes on a frozen
 corpus, `AUTO_RECALL` remains disabled by the application policy.
+
+The runner validates the corpus with the OpenCV backend but does not enable the
+runtime release feature. Only after it exits successfully may a release build
+explicitly add `auto-recall-release` alongside `opencv-backend`; ordinary builds
+must omit that feature and remain unable to activate `AUTO_RECALL`.
