@@ -22,6 +22,9 @@ fn main() {
         }
     }
     if env::var_os("CARGO_FEATURE_AUTO_RECALL_RELEASE").is_some() {
+        ensure_clean_checkout().unwrap_or_else(|error| {
+            panic!("auto-recall-release requires a clean Git checkout: {error}")
+        });
         let certificate = env::var("NLNF_VALIDATION_CERTIFICATE_JSON")
             .map(|value| value.lines().map(str::trim).collect::<String>())
             .ok()
@@ -61,6 +64,32 @@ fn main() {
         println!("cargo:rustc-env=NLNF_VALIDATION_CERTIFICATE_JSON={certificate}");
     }
     tauri_build::build()
+}
+
+fn ensure_clean_checkout() -> Result<(), String> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").map_err(|error| error.to_string())?;
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &manifest_dir,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+        ])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    let status = String::from_utf8_lossy(&output.stdout);
+    if status.trim().is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "working tree has uncommitted changes: {}",
+            status.trim()
+        ))
+    }
 }
 
 fn current_git_sha() -> Result<String, String> {
