@@ -252,6 +252,7 @@ impl AppDatabase {
             code: -1,
             message: format!("invalid vision settings: {message}"),
         })?;
+        let thresholds_changed = self.app_settings()?.0 != thresholds;
         let values = [
             (
                 "vision.match_threshold",
@@ -301,6 +302,9 @@ impl AppDatabase {
                         bind_text(statement, 2, &value)
                     },
                 )?;
+            }
+            if thresholds_changed {
+                self.downgrade_auto_recall_groups()?;
             }
             Ok(())
         })();
@@ -454,6 +458,7 @@ impl AppDatabase {
                 "UPDATE settings SET value=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key='reference_set_version'",
                 |_| Ok(()),
             )?;
+            self.downgrade_auto_recall_groups()?;
             self.reference_set_version()
         })();
         match result {
@@ -487,6 +492,7 @@ impl AppDatabase {
                 "UPDATE settings SET value=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key='reference_set_version'",
                 |_| Ok(()),
             )?;
+            self.downgrade_auto_recall_groups()?;
             self.reference_set_version()
         })();
         match result {
@@ -652,6 +658,16 @@ impl AppDatabase {
                 bind_text(statement, 5, &record.created_at)?;
                 bind_text(statement, 6, &record.updated_at)
             },
+        )
+    }
+
+    /// Persistently close the recall side effect whenever a value bound into
+    /// the release certificate changes. Callers invoke this inside the same
+    /// transaction as the reference or threshold mutation.
+    fn downgrade_auto_recall_groups(&self) -> Result<(), StorageError> {
+        self.execute(
+            "UPDATE qq_groups SET mode='OBSERVE', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mode='AUTO_RECALL'",
+            |_| Ok(()),
         )
     }
 
@@ -1752,6 +1768,86 @@ mod tests {
                 .query_i64("SELECT COUNT(*) FROM moderation_messages")
                 .unwrap(),
             2
+        );
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reference_mutations_persistently_downgrade_auto_recall_groups() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        database
+            .upsert_qq_group(&QQGroupRecord {
+                group_id: "group-1".to_owned(),
+                group_name: "test".to_owned(),
+                mode: "AUTO_RECALL".to_owned(),
+                recall_threshold: 0.98,
+                created_at: "now".to_owned(),
+                updated_at: "now".to_owned(),
+            })
+            .unwrap();
+        let record = ReferenceRecord {
+            id: "NF01".to_owned(),
+            class: "NAIWA_FROG".to_owned(),
+            file_path: "references/naiwa_frog/NF01.png".to_owned(),
+            sha256: "f".repeat(64),
+            phash: "0123456789abcdef".to_owned(),
+            descriptor_path: None,
+            width: 640,
+            height: 480,
+            created_at: "now".to_owned(),
+        };
+        database
+            .record_reference_and_bump_version(&record)
+            .expect("reference insert commits");
+        assert_eq!(database.list_qq_groups().unwrap()[0].mode, "OBSERVE");
+
+        database
+            .upsert_qq_group(&QQGroupRecord {
+                mode: "AUTO_RECALL".to_owned(),
+                updated_at: "later".to_owned(),
+                ..database.list_qq_groups().unwrap()[0].clone()
+            })
+            .unwrap();
+        database
+            .delete_reference_and_bump_version("NF01")
+            .expect("reference delete commits");
+        assert_eq!(database.list_qq_groups().unwrap()[0].mode, "OBSERVE");
+        drop(database);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn threshold_mutations_persistently_downgrade_auto_recall_groups() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        database
+            .upsert_qq_group(&QQGroupRecord {
+                group_id: "group-threshold".to_owned(),
+                group_name: "test".to_owned(),
+                mode: "AUTO_RECALL".to_owned(),
+                recall_threshold: 0.98,
+                created_at: "now".to_owned(),
+                updated_at: "now".to_owned(),
+            })
+            .unwrap();
+        let thresholds = VisionThresholds {
+            match_threshold: 0.64,
+            ..VisionThresholds::default()
+        };
+        database
+            .save_app_settings(thresholds, false)
+            .expect("threshold update commits");
+        assert_eq!(
+            database
+                .find_qq_group("group-threshold")
+                .unwrap()
+                .unwrap()
+                .mode,
+            "OBSERVE"
         );
         drop(database);
         let _ = std::fs::remove_file(path);
