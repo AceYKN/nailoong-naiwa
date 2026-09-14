@@ -43,7 +43,7 @@ fn auto_recall_available_for_database(
     token_configured
         && auto_recall_available()
         && database
-            .reference_set_hash()
+            .verified_reference_set_hash()
             .ok()
             .is_some_and(|hash| release::certificate_matches_reference_set(&hash, recall_threshold))
 }

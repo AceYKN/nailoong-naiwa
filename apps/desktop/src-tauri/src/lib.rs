@@ -125,10 +125,10 @@ pub(crate) fn classify_image_bytes(
     bytes: &[u8],
     max_sample_frames: Option<u32>,
 ) -> Result<vision::ClassificationResult, String> {
-    let decoded = decoder::decode_image(
-        bytes,
-        max_sample_frames.unwrap_or(crate::image_policy::MAX_SAMPLE_FRAMES),
-    )?;
+    let sample_frame_limit = max_sample_frames
+        .unwrap_or(crate::image_policy::MAX_SAMPLE_FRAMES)
+        .min(crate::image_policy::MAX_SAMPLE_FRAMES);
+    let decoded = decoder::decode_image(bytes, sample_frame_limit)?;
 
     #[cfg(feature = "opencv-backend")]
     {
@@ -137,17 +137,6 @@ pub(crate) fn classify_image_bytes(
             .reference_set_version()
             .map_err(|error| error.to_string())?;
         let image_sha256 = decoded.inspection.sha256.clone();
-        if let Ok(Some(cached)) =
-            database.find_prediction_cache(&image_sha256, reference_set_version)
-        {
-            if let Some(serialized) = cached.classification_json {
-                if let Ok(result) =
-                    serde_json::from_str::<vision::ClassificationResult>(&serialized)
-                {
-                    return Ok(result);
-                }
-            }
-        }
         let records = database
             .list_references()
             .map_err(|error| error.to_string())?;
@@ -164,10 +153,33 @@ pub(crate) fn classify_image_bytes(
         {
             return Err("请先为奶龙和奶蛙各添加至少 1 张参考图".to_owned());
         }
-        let mut engine =
-            vision_opencv::OpenCvVisionEngine::new(vision_opencv::OpenCvConfig::default())?;
-        let mut references = Vec::with_capacity(records.len());
+        let config = vision_opencv::OpenCvConfig::default();
+        let descriptor_fingerprint = vision_opencv::descriptor_fingerprint(config);
+        let engine_fingerprint = vision_opencv::engine_fingerprint(config, sample_frame_limit);
+        // Validate every source file before consulting the prediction cache.
+        // A cached classification must never hide a modified or replaced
+        // Reference Bank from the recall safety checks.
+        let mut verified_records = Vec::with_capacity(records.len());
         for record in records {
+            let reference_bytes = read_verified_reference_bytes(&record)?;
+            verified_records.push((record, reference_bytes));
+        }
+        if let Ok(Some(cached)) = database.find_prediction_cache(
+            &image_sha256,
+            reference_set_version,
+            &engine_fingerprint,
+        ) {
+            if let Some(serialized) = cached.classification_json {
+                if let Ok(result) =
+                    serde_json::from_str::<vision::ClassificationResult>(&serialized)
+                {
+                    return Ok(result);
+                }
+            }
+        }
+        let mut engine = vision_opencv::OpenCvVisionEngine::new(config)?;
+        let mut references = Vec::with_capacity(verified_records.len());
+        for (record, reference_bytes) in verified_records {
             let class = parse_reference_class(&record.class)?;
             let cached = record
                 .descriptor_path
@@ -175,21 +187,31 @@ pub(crate) fn classify_image_bytes(
                 .map(PathBuf::from)
                 .filter(|path| path.is_file())
                 .and_then(|path| {
-                    vision_opencv::read_reference_features(&path, record.id.clone(), class).ok()
+                    vision_opencv::read_reference_features(
+                        &path,
+                        record.id.clone(),
+                        class,
+                        &record.sha256,
+                        &descriptor_fingerprint,
+                    )
+                    .ok()
                 });
             if let Some(features) = cached {
                 references.push(features);
                 continue;
             }
-            let reference_bytes = std::fs::read(&record.file_path)
-                .map_err(|error| format!("cannot read reference {}: {error}", record.id))?;
             let reference_image =
                 decoder::decode_image(&reference_bytes, image_policy::MAX_SAMPLE_FRAMES)?;
             let frame = reference_image
                 .frames
                 .first()
                 .ok_or_else(|| format!("reference {} has no decoded frame", record.id))?;
-            let features = engine.extract_reference(record.id.clone(), class, frame)?;
+            let features = engine.extract_reference_with_source_sha256(
+                record.id.clone(),
+                class,
+                record.sha256.clone(),
+                frame,
+            )?;
             if let Some(path) = record.descriptor_path.as_deref().map(PathBuf::from) {
                 if let Err(error) = vision_opencv::write_reference_features(&path, &features) {
                     eprintln!("descriptor cache refresh failed for {}: {error}", record.id);
@@ -202,6 +224,7 @@ pub(crate) fn classify_image_bytes(
         if let Err(error) = database.record_prediction_cache(&storage::PredictionCacheRecord {
             image_sha256,
             reference_set_version,
+            engine_fingerprint,
             label: classification_label_name(result.label).to_owned(),
             nailong_score: f64::from(result.nailong_score),
             naiwa_frog_score: f64::from(result.naiwa_frog_score),
@@ -245,8 +268,7 @@ fn debug_match_image(
             .find(|record| record.id == reference_id)
             .ok_or_else(|| "reference not found".to_owned())?;
         let class = parse_reference_class(&record.class)?;
-        let reference_bytes = std::fs::read(&record.file_path)
-            .map_err(|error| format!("cannot read reference {}: {error}", record.id))?;
+        let reference_bytes = read_verified_reference_bytes(&record)?;
         let reference = decoder::decode_image(&reference_bytes, 1)?;
         let query_frame = query
             .frames
@@ -256,17 +278,30 @@ fn debug_match_image(
             .frames
             .first()
             .ok_or_else(|| "reference image did not produce a decoded frame".to_owned())?;
-        let mut engine =
-            vision_opencv::OpenCvVisionEngine::new(vision_opencv::OpenCvConfig::default())?;
+        let config = vision_opencv::OpenCvConfig::default();
+        let descriptor_fingerprint = vision_opencv::descriptor_fingerprint(config);
+        let mut engine = vision_opencv::OpenCvVisionEngine::new(config)?;
         let features = record
             .descriptor_path
             .as_deref()
             .map(PathBuf::from)
             .filter(|path| path.is_file())
             .and_then(|path| {
-                vision_opencv::read_reference_features(&path, record.id.clone(), class).ok()
+                vision_opencv::read_reference_features(
+                    &path,
+                    record.id.clone(),
+                    class,
+                    &record.sha256,
+                    &descriptor_fingerprint,
+                )
+                .ok()
             })
-            .unwrap_or(engine.extract_reference(record.id, class, reference_frame)?);
+            .unwrap_or(engine.extract_reference_with_source_sha256(
+                record.id,
+                class,
+                record.sha256,
+                reference_frame,
+            )?);
         engine.render_match_debug(query_frame, reference_frame, &features)
     }
 
@@ -296,6 +331,20 @@ fn confidence_level_name(level: vision::ConfidenceLevel) -> &'static str {
         vision::ConfidenceLevel::High => "HIGH",
         vision::ConfidenceLevel::VeryHigh => "VERY_HIGH",
     }
+}
+
+#[cfg(feature = "opencv-backend")]
+fn read_verified_reference_bytes(record: &storage::ReferenceRecord) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(&record.file_path)
+        .map_err(|error| format!("cannot read reference {}: {error}", record.id))?;
+    let actual_sha256 = release::sha256_hex(&bytes);
+    if !actual_sha256.eq_ignore_ascii_case(&record.sha256) {
+        return Err(format!(
+            "reference {} bytes do not match the stored SHA-256; re-add this reference before classification",
+            record.id
+        ));
+    }
+    Ok(bytes)
 }
 
 fn current_timestamp() -> String {
@@ -470,7 +519,12 @@ fn write_descriptor_cache(
         .ok_or_else(|| "reference image did not produce a decoded frame".to_owned())?;
     let mut engine =
         vision_opencv::OpenCvVisionEngine::new(vision_opencv::OpenCvConfig::default())?;
-    let features = engine.extract_reference(asset.id.clone(), class, frame)?;
+    let features = engine.extract_reference_with_source_sha256(
+        asset.id.clone(),
+        class,
+        asset.sha256.clone(),
+        frame,
+    )?;
     let cache_root = app
         .path()
         .app_data_dir()

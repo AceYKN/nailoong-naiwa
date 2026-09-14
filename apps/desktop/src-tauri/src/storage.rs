@@ -14,7 +14,7 @@ const SQLITE_DONE: c_int = 101;
 const SQLITE_OPEN_READWRITE: c_int = 0x0000_0002;
 const SQLITE_OPEN_CREATE: c_int = 0x0000_0004;
 const SQLITE_OPEN_FULLMUTEX: c_int = 0x0001_0000;
-const SQLITE_SCHEMA_VERSION: u32 = 4;
+const SQLITE_SCHEMA_VERSION: u32 = 5;
 
 #[repr(C)]
 struct sqlite3 {
@@ -137,6 +137,7 @@ pub struct ReferenceRecord {
 pub struct PredictionCacheRecord {
     pub image_sha256: String,
     pub reference_set_version: u64,
+    pub engine_fingerprint: String,
     pub label: String,
     pub nailong_score: f64,
     pub naiwa_frog_score: f64,
@@ -205,6 +206,31 @@ impl AppDatabase {
             .into_iter()
             .map(|record| (record.class, record.sha256))
             .collect::<Vec<_>>();
+        Ok(crate::release::reference_set_hash(entries))
+    }
+
+    /// Hash the bytes currently present on disk, not only the database's
+    /// declared hashes. This is the value that may cross the AUTO_RECALL
+    /// safety boundary.
+    pub fn verified_reference_set_hash(&self) -> Result<String, StorageError> {
+        let mut entries = Vec::new();
+        for record in self.list_references()? {
+            let bytes = std::fs::read(&record.file_path).map_err(|error| StorageError {
+                code: -1,
+                message: format!("cannot read reference {}: {error}", record.id),
+            })?;
+            let actual_sha256 = crate::release::sha256_hex(&bytes);
+            if !actual_sha256.eq_ignore_ascii_case(&record.sha256) {
+                return Err(StorageError {
+                    code: -1,
+                    message: format!(
+                        "reference {} bytes do not match the stored SHA-256; refusing to use the Reference Bank",
+                        record.id
+                    ),
+                });
+            }
+            entries.push((record.class, actual_sha256));
+        }
         Ok(crate::release::reference_set_hash(entries))
     }
 
@@ -420,6 +446,7 @@ impl AppDatabase {
         validate_sha256_text(&record.image_sha256, "prediction image sha256")?;
         validate_label(&record.label)?;
         validate_confidence(&record.confidence_level)?;
+        validate_sha256_text(&record.engine_fingerprint, "prediction engine fingerprint")?;
         if let Some(classification_json) = &record.classification_json {
             if classification_json.trim().is_empty() {
                 return Err(StorageError {
@@ -435,17 +462,18 @@ impl AppDatabase {
             message: "reference_set_version exceeds SQLite integer range".to_owned(),
         })?;
         self.execute(
-            "INSERT INTO prediction_cache(image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) ON CONFLICT(image_sha256, reference_set_version) DO UPDATE SET label=excluded.label, nailong_score=excluded.nailong_score, naiwa_frog_score=excluded.naiwa_frog_score, confidence_level=excluded.confidence_level, classification_json=excluded.classification_json, source=excluded.source, created_at=excluded.created_at",
+            "INSERT INTO prediction_cache(image_sha256, reference_set_version, engine_fingerprint, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(image_sha256, reference_set_version, engine_fingerprint) DO UPDATE SET label=excluded.label, nailong_score=excluded.nailong_score, naiwa_frog_score=excluded.naiwa_frog_score, confidence_level=excluded.confidence_level, classification_json=excluded.classification_json, source=excluded.source, created_at=excluded.created_at",
             |statement| {
                 bind_text(statement, 1, &record.image_sha256)?;
                 bind_int64(statement, 2, version)?;
-                bind_text(statement, 3, &record.label)?;
-                bind_double(statement, 4, record.nailong_score)?;
-                bind_double(statement, 5, record.naiwa_frog_score)?;
-                bind_text(statement, 6, &record.confidence_level)?;
-                bind_optional_text(statement, 7, record.classification_json.as_deref())?;
-                bind_text(statement, 8, &record.source)?;
-                bind_text(statement, 9, &record.created_at)
+                bind_text(statement, 3, &record.engine_fingerprint)?;
+                bind_text(statement, 4, &record.label)?;
+                bind_double(statement, 5, record.nailong_score)?;
+                bind_double(statement, 6, record.naiwa_frog_score)?;
+                bind_text(statement, 7, &record.confidence_level)?;
+                bind_optional_text(statement, 8, record.classification_json.as_deref())?;
+                bind_text(statement, 9, &record.source)?;
+                bind_text(statement, 10, &record.created_at)
             },
         )
     }
@@ -454,18 +482,21 @@ impl AppDatabase {
         &self,
         image_sha256: &str,
         reference_set_version: u64,
+        engine_fingerprint: &str,
     ) -> Result<Option<PredictionCacheRecord>, StorageError> {
         validate_sha256_text(image_sha256, "prediction image sha256")?;
+        validate_sha256_text(engine_fingerprint, "prediction engine fingerprint")?;
         let version = i64::try_from(reference_set_version).map_err(|_| StorageError {
             code: -1,
             message: "reference_set_version exceeds SQLite integer range".to_owned(),
         })?;
         let statement = Statement::prepare(
             self,
-            "SELECT image_sha256, reference_set_version, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at FROM prediction_cache WHERE image_sha256=?1 AND reference_set_version=?2",
+            "SELECT image_sha256, reference_set_version, engine_fingerprint, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at FROM prediction_cache WHERE image_sha256=?1 AND reference_set_version=?2 AND engine_fingerprint=?3",
         )?;
         bind_text(statement.raw, 1, image_sha256)?;
         bind_int64(statement.raw, 2, version)?;
+        bind_text(statement.raw, 3, engine_fingerprint)?;
         match unsafe { sqlite3_step(statement.raw) } {
             SQLITE_ROW => Ok(Some(PredictionCacheRecord {
                 image_sha256: column_text(statement.raw, 0)?,
@@ -476,13 +507,14 @@ impl AppDatabase {
                     code: -1,
                     message: "cached reference_set_version is negative".to_owned(),
                 })?,
-                label: column_text(statement.raw, 2)?,
-                nailong_score: unsafe { sqlite3_column_double(statement.raw, 3) },
-                naiwa_frog_score: unsafe { sqlite3_column_double(statement.raw, 4) },
-                confidence_level: column_text(statement.raw, 5)?,
-                classification_json: column_optional_text(statement.raw, 6),
-                source: column_text(statement.raw, 7)?,
-                created_at: column_text(statement.raw, 8)?,
+                engine_fingerprint: column_text(statement.raw, 2)?,
+                label: column_text(statement.raw, 3)?,
+                nailong_score: unsafe { sqlite3_column_double(statement.raw, 4) },
+                naiwa_frog_score: unsafe { sqlite3_column_double(statement.raw, 5) },
+                confidence_level: column_text(statement.raw, 6)?,
+                classification_json: column_optional_text(statement.raw, 7),
+                source: column_text(statement.raw, 8)?,
+                created_at: column_text(statement.raw, 9)?,
             })),
             SQLITE_DONE => Ok(None),
             code => Err(self.error(code, "prediction cache query failed")),
@@ -675,13 +707,15 @@ impl AppDatabase {
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  image_sha256 TEXT NOT NULL,
                  reference_set_version INTEGER NOT NULL,
+                 engine_fingerprint TEXT NOT NULL,
                  label TEXT NOT NULL CHECK(label IN ('NAILONG', 'NAIWA_FROG', 'OTHER', 'UNKNOWN')),
                  nailong_score REAL NOT NULL,
                  naiwa_frog_score REAL NOT NULL,
                  confidence_level TEXT NOT NULL CHECK(confidence_level IN ('NONE', 'LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH')),
+                 classification_json TEXT,
                  source TEXT NOT NULL,
                  created_at TEXT NOT NULL,
-                 UNIQUE(image_sha256, reference_set_version)
+                 UNIQUE(image_sha256, reference_set_version, engine_fingerprint)
              );
               INSERT OR IGNORE INTO schema_migrations(version, applied_at)
                   VALUES(1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
@@ -716,6 +750,48 @@ impl AppDatabase {
             self.exec(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at)
                      VALUES(4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )?;
+        }
+        if !self.column_exists("prediction_cache", "engine_fingerprint")? {
+            self.exec("BEGIN IMMEDIATE")?;
+            let result = (|| {
+                self.exec("DROP TABLE IF EXISTS prediction_cache_v5")?;
+                self.exec(
+                    "CREATE TABLE prediction_cache_v5 (
+                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         image_sha256 TEXT NOT NULL,
+                         reference_set_version INTEGER NOT NULL,
+                         engine_fingerprint TEXT NOT NULL,
+                         label TEXT NOT NULL CHECK(label IN ('NAILONG', 'NAIWA_FROG', 'OTHER', 'UNKNOWN')),
+                         nailong_score REAL NOT NULL,
+                         naiwa_frog_score REAL NOT NULL,
+                         confidence_level TEXT NOT NULL CHECK(confidence_level IN ('NONE', 'LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH')),
+                         classification_json TEXT,
+                         source TEXT NOT NULL,
+                         created_at TEXT NOT NULL,
+                         UNIQUE(image_sha256, reference_set_version, engine_fingerprint)
+                     )",
+                )?;
+                self.exec(
+                    "INSERT INTO prediction_cache_v5(image_sha256, reference_set_version, engine_fingerprint, label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at)
+                     SELECT image_sha256, reference_set_version, '', label, nailong_score, naiwa_frog_score, confidence_level, classification_json, source, created_at
+                     FROM prediction_cache",
+                )?;
+                self.exec("DROP TABLE prediction_cache")?;
+                self.exec("ALTER TABLE prediction_cache_v5 RENAME TO prediction_cache")
+            })();
+            match result {
+                Ok(()) => self.exec("COMMIT")?,
+                Err(error) => {
+                    let _ = self.exec("ROLLBACK");
+                    return Err(error);
+                }
+            }
+        }
+        if !self.migration_applied(5)? {
+            self.exec(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+                     VALUES(5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             )?;
         }
         Ok(())
@@ -1115,12 +1191,16 @@ mod tests {
         ))
     }
 
+    fn test_engine_fingerprint() -> String {
+        "a".repeat(64)
+    }
+
     #[test]
     fn creates_schema_and_persists_active_record_types() {
         let path = temporary_database_path();
         let _ = std::fs::remove_file(&path);
         let database = AppDatabase::open(&path).expect("Windows SQLite opens");
-        assert_eq!(database.schema_version(), 4);
+        assert_eq!(database.schema_version(), 5);
         database
             .upsert_qq_group(&QQGroupRecord {
                 group_id: "group-1".to_owned(),
@@ -1163,6 +1243,7 @@ mod tests {
             .record_prediction_cache(&PredictionCacheRecord {
                 image_sha256: "a".repeat(64),
                 reference_set_version: 1,
+                engine_fingerprint: test_engine_fingerprint(),
                 label: "NAIWA_FROG".to_owned(),
                 nailong_score: 0.12,
                 naiwa_frog_score: 0.98,
@@ -1211,7 +1292,7 @@ mod tests {
     }
 
     #[test]
-    fn prediction_cache_is_unique_per_sha_and_reference_version() {
+    fn prediction_cache_is_keyed_by_sha_version_and_engine_fingerprint() {
         let path = temporary_database_path();
         let _ = std::fs::remove_file(&path);
         let database = AppDatabase::open(&path).expect("Windows SQLite opens");
@@ -1220,6 +1301,7 @@ mod tests {
             naiwa_frog_score: 0.20,
             image_sha256: "b".repeat(64),
             reference_set_version: 1,
+            engine_fingerprint: test_engine_fingerprint(),
             label: "OTHER".to_owned(),
             confidence_level: "LOW".to_owned(),
             classification_json: None,
@@ -1243,11 +1325,29 @@ mod tests {
             1
         );
         let cached = database
-            .find_prediction_cache(&"b".repeat(64), 1)
+            .find_prediction_cache(&"b".repeat(64), 1, &test_engine_fingerprint())
             .unwrap()
             .expect("prediction cache entry is readable");
         assert_eq!(cached.nailong_score, 0.30);
         assert_eq!(cached.source, "updated");
+        let other_engine_fingerprint = "b".repeat(64);
+        assert!(database
+            .find_prediction_cache(&"b".repeat(64), 1, &other_engine_fingerprint)
+            .unwrap()
+            .is_none());
+        database
+            .record_prediction_cache(&PredictionCacheRecord {
+                engine_fingerprint: other_engine_fingerprint.clone(),
+                source: "other-engine".to_owned(),
+                ..cached.clone()
+            })
+            .expect("a different engine fingerprint has an independent cache entry");
+        assert_eq!(
+            database
+                .query_i64("SELECT COUNT(*) FROM prediction_cache")
+                .unwrap(),
+            2
+        );
         database
             .record_prediction_cache(&PredictionCacheRecord {
                 classification_json: Some(r#"{"label":"OTHER"}"#.to_owned()),
@@ -1256,7 +1356,7 @@ mod tests {
             .expect("full classification cache persists");
         assert_eq!(
             database
-                .find_prediction_cache(&"b".repeat(64), 1)
+                .find_prediction_cache(&"b".repeat(64), 1, &test_engine_fingerprint())
                 .unwrap()
                 .unwrap()
                 .classification_json
@@ -1264,13 +1364,14 @@ mod tests {
             Some(r#"{"label":"OTHER"}"#)
         );
         assert!(database
-            .find_prediction_cache(&"c".repeat(64), 1)
+            .find_prediction_cache(&"c".repeat(64), 1, &test_engine_fingerprint())
             .unwrap()
             .is_none());
         database
             .record_prediction_cache(&PredictionCacheRecord {
                 image_sha256: "b".repeat(64),
                 reference_set_version: 2,
+                engine_fingerprint: test_engine_fingerprint(),
                 label: "NAILONG".to_owned(),
                 nailong_score: 0.9,
                 naiwa_frog_score: 0.1,
@@ -1284,7 +1385,7 @@ mod tests {
             database
                 .query_i64("SELECT COUNT(*) FROM prediction_cache")
                 .unwrap(),
-            2
+            3
         );
         drop(database);
         let _ = std::fs::remove_file(path);
@@ -1298,6 +1399,7 @@ mod tests {
         let prediction = database.record_prediction_cache(&PredictionCacheRecord {
             image_sha256: "c".repeat(64),
             reference_set_version: 1,
+            engine_fingerprint: test_engine_fingerprint(),
             label: "NAIWA_FROG".to_owned(),
             nailong_score: f64::NAN,
             naiwa_frog_score: 0.2,
@@ -1349,6 +1451,7 @@ mod tests {
         let cache = PredictionCacheRecord {
             image_sha256: "a".repeat(64),
             reference_set_version: 2,
+            engine_fingerprint: test_engine_fingerprint(),
             label: "NAIWA_FROG".to_owned(),
             nailong_score: 0.12,
             naiwa_frog_score: 0.91,
@@ -1361,11 +1464,13 @@ mod tests {
             .record_prediction_cache(&cache)
             .expect("versioned cache persists");
         assert_eq!(
-            database.find_prediction_cache(&"a".repeat(64), 2).unwrap(),
+            database
+                .find_prediction_cache(&"a".repeat(64), 2, &test_engine_fingerprint())
+                .unwrap(),
             Some(cache)
         );
         assert!(database
-            .find_prediction_cache(&"a".repeat(64), 1)
+            .find_prediction_cache(&"a".repeat(64), 1, &test_engine_fingerprint())
             .unwrap()
             .is_none());
         assert_eq!(
@@ -1378,6 +1483,39 @@ mod tests {
         assert_ne!(reference_hash, database.reference_set_hash().unwrap());
         drop(database);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn verified_reference_set_hash_rejects_changed_reference_bytes() {
+        let path = temporary_database_path();
+        let _ = std::fs::remove_file(&path);
+        let reference_path = std::env::temp_dir().join(format!(
+            "nlnf-verified-reference-{}-verify.png",
+            std::process::id()
+        ));
+        let original = b"reference bytes";
+        std::fs::write(&reference_path, original).unwrap();
+        let database = AppDatabase::open(&path).expect("Windows SQLite opens");
+        database
+            .record_reference(&ReferenceRecord {
+                id: "NF-VERIFY".to_owned(),
+                class: "NAIWA_FROG".to_owned(),
+                file_path: reference_path.to_string_lossy().into_owned(),
+                sha256: crate::release::sha256_hex(original),
+                phash: "0123456789abcdef".to_owned(),
+                descriptor_path: None,
+                width: 1,
+                height: 1,
+                created_at: "now".to_owned(),
+            })
+            .unwrap();
+        assert_eq!(database.verified_reference_set_hash().unwrap().len(), 64);
+        std::fs::write(&reference_path, b"changed bytes").unwrap();
+        let error = database.verified_reference_set_hash().unwrap_err();
+        assert!(error.message.contains("do not match"));
+        drop(database);
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(reference_path);
     }
 
     #[test]
@@ -1423,6 +1561,7 @@ mod tests {
                 .record_prediction_cache(&PredictionCacheRecord {
                     image_sha256: "e".repeat(64),
                     reference_set_version: 1,
+                    engine_fingerprint: test_engine_fingerprint(),
                     label: "UNKNOWN".to_owned(),
                     nailong_score: 0.4,
                     naiwa_frog_score: 0.6,
@@ -1434,16 +1573,16 @@ mod tests {
                 .expect("prediction persists before reopen");
         }
         let reopened = AppDatabase::open(&path).expect("reopen applies no duplicate migration");
-        assert_eq!(reopened.schema_version(), 4);
+        assert_eq!(reopened.schema_version(), 5);
         assert!(reopened
-            .find_prediction_cache(&"e".repeat(64), 1)
+            .find_prediction_cache(&"e".repeat(64), 1, &test_engine_fingerprint())
             .unwrap()
             .is_some());
         assert_eq!(
             reopened
                 .query_i64("SELECT COUNT(*) FROM schema_migrations")
                 .unwrap(),
-            4
+            5
         );
         drop(reopened);
         let _ = std::fs::remove_file(path);

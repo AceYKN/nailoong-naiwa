@@ -3,6 +3,10 @@ use std::{env, process::Command};
 fn main() {
     println!("cargo:rerun-if-env-changed=NLNF_VALIDATION_CERTIFICATE_JSON");
     println!("cargo:rerun-if-env-changed=NLNF_VALIDATION_GIT_SHA");
+    let checkout_git_sha = current_git_sha().ok();
+    if let Some(git_sha) = &checkout_git_sha {
+        println!("cargo:rustc-env=NLNF_BUILD_GIT_SHA={git_sha}");
+    }
     if env::var_os("CARGO_FEATURE_AUTO_RECALL_RELEASE").is_some() {
         let certificate = env::var("NLNF_VALIDATION_CERTIFICATE_JSON")
             .map(|value| value.lines().map(str::trim).collect::<String>())
@@ -13,8 +17,8 @@ fn main() {
                     "auto-recall-release requires NLNF_VALIDATION_CERTIFICATE_JSON from the validation gate"
                 )
             });
-        let current_git_sha = current_git_sha()
-            .unwrap_or_else(|error| panic!("auto-recall-release requires a Git checkout: {error}"));
+        let current_git_sha = checkout_git_sha
+            .unwrap_or_else(|| panic!("auto-recall-release requires a Git checkout"));
         if let Ok(expected_git_sha) = env::var("NLNF_VALIDATION_GIT_SHA") {
             let expected_git_sha = expected_git_sha.trim();
             if expected_git_sha != current_git_sha {

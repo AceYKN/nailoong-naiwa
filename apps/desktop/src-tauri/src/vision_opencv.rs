@@ -33,7 +33,9 @@ pub const DEFAULT_LOWE_RATIO: f32 = 0.65;
 pub const DEFAULT_RANSAC_REPROJECTION_THRESHOLD: f64 = 3.0;
 pub const DEFAULT_PHASH_SHORTCUT_DISTANCE: u32 = 4;
 const DESCRIPTOR_MAGIC: &[u8] = b"NLNF-DESC\0";
-const DESCRIPTOR_VERSION: u32 = 2;
+const DESCRIPTOR_VERSION: u32 = 3;
+pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-ransac-v3";
+const SHA256_HEX_LENGTH: usize = 64;
 const MAX_DESCRIPTOR_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SERIALIZED_KEYPOINTS: u32 = 100_000;
 const COLOR_SIGNATURE_HUE_BINS: usize = 12;
@@ -163,9 +165,54 @@ impl Default for OpenCvConfig {
     }
 }
 
+/// Fingerprint the descriptor extractor and all inputs that can change the
+/// reference-side feature bytes. The Git revision is embedded by `build.rs`
+/// whenever the app is built from a checkout, so a new binary cannot silently
+/// reuse descriptors produced by an older source revision.
+pub fn descriptor_fingerprint(config: OpenCvConfig) -> String {
+    let build_sha = option_env!("NLNF_BUILD_GIT_SHA").unwrap_or("unversioned");
+    let payload = format!(
+        "pipeline={}\nbuild={build_sha}\ndescriptor_version={}\nmax_working_dimension={}\nmax_keypoints={}\nlowe_ratio_bits={:08x}\nransac_threshold_bits={:016x}\nsift_nfeatures={}\nsift_n_octave_layers=3\nsift_contrast_threshold_bits={:08x}\nsift_edge_threshold_bits={:08x}\nsift_sigma_bits={:08x}\n",
+        VISION_PIPELINE_VERSION,
+        DESCRIPTOR_VERSION,
+        config.max_working_dimension,
+        config.max_keypoints,
+        config.lowe_ratio.to_bits(),
+        config.ransac_reprojection_threshold.to_bits(),
+        config.max_keypoints,
+        0.04_f32.to_bits(),
+        10.0_f32.to_bits(),
+        1.6_f32.to_bits(),
+    );
+    crate::release::sha256_hex(payload.as_bytes())
+}
+
+/// Fingerprint the complete query pipeline, including sampling and decision
+/// thresholds. This value is stored with prediction cache rows.
+pub fn engine_fingerprint(config: OpenCvConfig, max_sample_frames: u32) -> String {
+    let build_sha = option_env!("NLNF_BUILD_GIT_SHA").unwrap_or("unversioned");
+    let sample_limit = max_sample_frames.min(crate::image_policy::MAX_SAMPLE_FRAMES);
+    let payload = format!(
+        "engine=1\nbuild={build_sha}\npipeline={}\ndescriptor_fingerprint={}\nmax_sample_frames={sample_limit}\nmax_decode_frames={}\nworking_frame={}x{}\nimage_max_file_size={}\nimage_max_dimensions={}x{}\nimage_max_pixels={}\nthresholds={}\n",
+        VISION_PIPELINE_VERSION,
+        descriptor_fingerprint(config),
+        crate::image_policy::MAX_DECODE_FRAMES,
+        crate::decoder::VISION_FRAME_WIDTH,
+        crate::decoder::VISION_FRAME_HEIGHT,
+        crate::image_policy::MAX_FILE_SIZE_BYTES,
+        crate::image_policy::MAX_WIDTH,
+        crate::image_policy::MAX_HEIGHT,
+        crate::image_policy::MAX_PIXELS,
+        crate::release::thresholds_sha256(config.vision_thresholds),
+    );
+    crate::release::sha256_hex(payload.as_bytes())
+}
+
 pub struct ReferenceFeatures {
     pub reference_id: String,
     pub class: ReferenceClass,
+    pub source_sha256: String,
+    pub descriptor_fingerprint: String,
     pub phash: u64,
     pub width: i32,
     pub height: i32,
@@ -216,12 +263,28 @@ impl OpenCvVisionEngine {
         class: ReferenceClass,
         frame: &DecodedFrame,
     ) -> Result<ReferenceFeatures, String> {
+        self.extract_reference_with_source_sha256(reference_id, class, "", frame)
+    }
+
+    pub fn extract_reference_with_source_sha256(
+        &mut self,
+        reference_id: impl Into<String>,
+        class: ReferenceClass,
+        source_sha256: impl Into<String>,
+        frame: &DecodedFrame,
+    ) -> Result<ReferenceFeatures, String> {
+        let source_sha256 = source_sha256.into().to_ascii_lowercase();
+        if !source_sha256.is_empty() && !is_sha256_hex(&source_sha256) {
+            return Err("reference source SHA-256 is invalid".to_owned());
+        }
         let phash = phash::compute_rgb(&frame.rgb, frame.width, frame.height)?;
         let (gray, width, height) = self.working_gray(frame)?;
         let (keypoints, descriptors) = self.extract_descriptors(&gray)?;
         Ok(ReferenceFeatures {
             reference_id: reference_id.into(),
             class,
+            source_sha256,
+            descriptor_fingerprint: descriptor_fingerprint(self.config),
             phash,
             width,
             height,
@@ -572,6 +635,12 @@ impl OpenCvVisionEngine {
 /// cache. The cache is derived data; the original reference image remains the
 /// source of truth and can be re-extracted if this format changes.
 pub fn write_reference_features(path: &Path, features: &ReferenceFeatures) -> Result<(), String> {
+    if !is_sha256_hex(&features.source_sha256) {
+        return Err("descriptor cache is missing the source image SHA-256".to_owned());
+    }
+    if !is_sha256_hex(&features.descriptor_fingerprint) {
+        return Err("descriptor cache has an invalid extractor fingerprint".to_owned());
+    }
     let descriptor_bytes = features.descriptors.data_bytes().map_err(cv_error)?;
     if descriptor_bytes.len() > MAX_DESCRIPTOR_BYTES {
         return Err("descriptor cache exceeds the 64 MiB limit".to_owned());
@@ -584,6 +653,8 @@ pub fn write_reference_features(path: &Path, features: &ReferenceFeatures) -> Re
             + 1
             + 4
             + 4
+            + SHA256_HEX_LENGTH
+            + SHA256_HEX_LENGTH
             + 8
             + 4
             + features.keypoints.len() * 28
@@ -596,6 +667,8 @@ pub fn write_reference_features(path: &Path, features: &ReferenceFeatures) -> Re
     bytes.extend_from_slice(DESCRIPTOR_MAGIC);
     push_u32(&mut bytes, DESCRIPTOR_VERSION);
     bytes.push(reference_class_code(features.class));
+    bytes.extend_from_slice(features.source_sha256.as_bytes());
+    bytes.extend_from_slice(features.descriptor_fingerprint.as_bytes());
     push_i32(&mut bytes, features.width);
     push_i32(&mut bytes, features.height);
     push_u64(&mut bytes, features.phash);
@@ -704,7 +777,15 @@ pub fn read_reference_features(
     path: &Path,
     expected_id: impl Into<String>,
     expected_class: ReferenceClass,
+    expected_source_sha256: &str,
+    expected_descriptor_fingerprint: &str,
 ) -> Result<ReferenceFeatures, String> {
+    if !is_sha256_hex(expected_source_sha256) {
+        return Err("expected reference source SHA-256 is invalid".to_owned());
+    }
+    if !is_sha256_hex(expected_descriptor_fingerprint) {
+        return Err("expected descriptor extractor fingerprint is invalid".to_owned());
+    }
     let bytes = std::fs::read(path)
         .map_err(|error| format!("cannot read descriptor cache {}: {error}", path.display()))?;
     let mut cursor = Cursor::new(bytes.as_slice());
@@ -721,6 +802,17 @@ pub fn read_reference_features(
     let class = reference_class_from_code(read_u8(&mut cursor)?)?;
     if class != expected_class {
         return Err("descriptor cache class does not match the reference metadata".to_owned());
+    }
+    let source_sha256 = read_fixed_ascii(&mut cursor, SHA256_HEX_LENGTH, "source SHA-256")?;
+    if !source_sha256.eq_ignore_ascii_case(expected_source_sha256) {
+        return Err(
+            "descriptor cache source SHA-256 does not match the reference bytes".to_owned(),
+        );
+    }
+    let descriptor_fingerprint =
+        read_fixed_ascii(&mut cursor, SHA256_HEX_LENGTH, "extractor fingerprint")?;
+    if !descriptor_fingerprint.eq_ignore_ascii_case(expected_descriptor_fingerprint) {
+        return Err("descriptor cache extractor fingerprint is stale".to_owned());
     }
     let width = read_i32(&mut cursor)?;
     let height = read_i32(&mut cursor)?;
@@ -789,6 +881,8 @@ pub fn read_reference_features(
     Ok(ReferenceFeatures {
         reference_id: expected_id.into(),
         class,
+        source_sha256,
+        descriptor_fingerprint,
         phash,
         width,
         height,
@@ -867,6 +961,27 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64, String> {
 
 fn read_f32(cursor: &mut Cursor<&[u8]>) -> Result<f32, String> {
     Ok(f32::from_le_bytes(read_array(cursor)?))
+}
+
+fn read_fixed_ascii(
+    cursor: &mut Cursor<&[u8]>,
+    length: usize,
+    field: &str,
+) -> Result<String, String> {
+    let mut bytes = vec![0_u8; length];
+    cursor
+        .read_exact(&mut bytes)
+        .map_err(|_| format!("descriptor cache is truncated before {field}"))?;
+    let value = String::from_utf8(bytes)
+        .map_err(|_| format!("descriptor cache {field} is not ASCII text"))?;
+    if value.len() != SHA256_HEX_LENGTH || !is_sha256_hex(&value) {
+        return Err(format!("descriptor cache {field} is invalid"));
+    }
+    Ok(value)
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == SHA256_HEX_LENGTH && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn read_array<const N: usize>(cursor: &mut Cursor<&[u8]>) -> Result<[u8; N], String> {
@@ -998,8 +1113,8 @@ mod tests {
     use std::{collections::HashSet, path::Path};
 
     use super::{
-        apply_color_compatibility, read_reference_features, write_reference_features,
-        ColorSignature, OpenCvVisionEngine,
+        apply_color_compatibility, descriptor_fingerprint, read_reference_features,
+        write_reference_features, ColorSignature, OpenCvVisionEngine,
     };
     use crate::{
         decoder::DecodedFrame,
@@ -1472,8 +1587,14 @@ mod tests {
     fn descriptor_cache_round_trips_keypoints_and_matrix() {
         let frame = textured_frame();
         let mut engine = OpenCvVisionEngine::new(Default::default()).unwrap();
+        let source_sha256 = crate::release::sha256_hex(&frame.rgb);
         let reference = engine
-            .extract_reference("NL-CACHE", ReferenceClass::Nailong, &frame)
+            .extract_reference_with_source_sha256(
+                "NL-CACHE",
+                ReferenceClass::Nailong,
+                &source_sha256,
+                &frame,
+            )
             .unwrap();
         let path = std::env::temp_dir().join(format!(
             "nlnf-descriptor-test-{}-{}.desc",
@@ -1482,7 +1603,14 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&path);
         write_reference_features(&path, &reference).unwrap();
-        let loaded = read_reference_features(&path, "NL-CACHE", ReferenceClass::Nailong).unwrap();
+        let loaded = read_reference_features(
+            &path,
+            "NL-CACHE",
+            ReferenceClass::Nailong,
+            &source_sha256,
+            &descriptor_fingerprint(Default::default()),
+        )
+        .unwrap();
         assert_eq!(loaded.phash, reference.phash);
         assert_eq!(loaded.keypoints.len(), reference.keypoints.len());
         assert_eq!(loaded.descriptors.rows(), reference.descriptors.rows());
@@ -1492,6 +1620,11 @@ mod tests {
             reference.descriptors.data_bytes().unwrap()
         );
         assert_eq!(loaded.color_signature, reference.color_signature);
+        assert_eq!(loaded.source_sha256, source_sha256);
+        assert_eq!(
+            loaded.descriptor_fingerprint,
+            descriptor_fingerprint(Default::default())
+        );
         let _ = std::fs::remove_file(path);
     }
 

@@ -615,7 +615,7 @@ function App() {
               {batchProgress ? "批量匹配中…" : "批量开始匹配"}
             </button>
           )}
-          {images.length > 0 && <button type="button" className="text-button" onClick={clearImages}>清空</button>}
+          {images.length > 0 && <button type="button" className="text-button" onClick={clearImages} disabled={batchProgress !== null}>清空</button>}
         </div>
       </div>
       {images.length === 0 ? (

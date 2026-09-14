@@ -59,9 +59,11 @@ OpenCV 是生产视觉后端且默认 feature-gated。Windows 原生依赖、环
 
 ## 运行原则
 
-1. 一类至少 1 张、最多 10 张参考图；新增参考图立即递增 `reference_set_version`。
+1. 一类至少 1 张、最多 10 张参考图；参考图库支持一次多选导入，超出剩余名额的文件会被忽略，新增参考图立即递增 `reference_set_version`。
 2. 识别失败或证据不足返回 `UNKNOWN`，不生成猜测概率。
 3. QQ `AUTO_RECALL` 必须同时满足高分、严格 margin、最小 inliers、inlier ratio、coverage、重投影误差和 `VERY_HIGH` confidence；还必须使用嵌入且未失配的冻结验证 certificate，未通过冻结验证门禁的普通构建不会开放该模式。
 4. 图片默认只在本机处理；v2 不调用云端预标注服务，也不会上传新图片。
+
+预测缓存包含当前源码/配置/采样策略的引擎指纹；参考图描述子还绑定实际文件 SHA-256 与提取器指纹。文件或算法不一致时只会重新提取或 fail closed，不会把旧结果带入 QQ 自动处理。
 
 完整阶段、迁移边界和未完成验收项见 [docs/ROADMAP.md](docs/ROADMAP.md)、[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 和 [docs/ACCEPTANCE_MATRIX.md](docs/ACCEPTANCE_MATRIX.md)。

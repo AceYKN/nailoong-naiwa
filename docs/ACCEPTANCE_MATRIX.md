@@ -7,11 +7,11 @@
 | 范围 | 证据 |
 | --- | --- |
 | v2 方向 | `spec-v2.md` 已将产品定义为零训练、多参考图、传统特征匹配；DeepSeek、训练、ONNX 不属于运行依赖。 |
-| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：66 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，并将旧数据库中的该模式降级为 `OBSERVE`；release manifest 也拒绝重复路径。 |
+| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：67 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，并将旧数据库中的该模式降级为 `OBSERVE`；release manifest 也拒绝重复路径。 |
 | Rust 质量门 | 默认 feature 的 fmt/clippy 通过；本机 OpenCV feature 的 79 项库测试与 clippy 通过；release feature 在带当前 checkout SHA 的结构合法测试凭证组合下 79 项库测试与 clippy 通过，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。 |
 | ReferenceManager | 本地单元测试验证 1~10 张上限、源文件不修改、SHA-256/pHash 元数据与原子复制。 |
-| SQLite v4 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label` 与 `reference_set_version` 已实现；重开幂等、完整分类缓存、版本化缓存、按群幂等和参考库增删测试通过。 |
-| 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置。 |
+| SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。旧 v4 缓存迁移为无指纹条目并自动失效。 |
+| 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败。浏览器预览检查无 console error。 |
 | 参考图初始化向导 | 隔离 Tauri/WebView 首次运行显示奶龙/奶蛙两步向导；从本地 QQ 缓存各选择 1 张后分别写入 Reference Bank、刷新版本并显示完成状态，识别页向导消失。 |
 | 桌面窗口 E2E | 使用隔离标识符 `com.aceykn.nlnfclassifier.e2e` 启动真实 Tauri/WebView 窗口；从 D 盘 QQ 缓存添加奶龙、奶蛙各 1 张，参考库版本递增、各显示 1/10；上传奶龙、奶蛙和负例各 1 张并点击“开始匹配”，结果分别为奶龙 98%、奶蛙 98%、其他。动画参考图 pHash 采样策略已统一，调试按钮仍可生成 `SIFT 与 RANSAC 匹配特征点` PNG。跨盘保存错误已修复，源文件 SHA-256 与 manifest 保持一致。 |
 | QQ OneBot 桌面 E2E | 使用本机 mock OneBot API 返回群组，真实 Tauri 窗口连接 API 与反向事件监听端口；群组可切换到 OBSERVE，发送带图片的反向事件后收到 HTTP 200 ACK，后台通过 `get_image` 下载并完成本地分类，UI 显示事件，SQLite `moderation_log` 持久化并可回读。该测试未启用撤回。 |
@@ -19,13 +19,13 @@
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
 | 输入边界 | Rust 侧保留 25 MiB、8192×8192、5000 万像素、500 帧，以及 PNG/JPEG/GIF/WebP 的受限检查。 |
 | v1 链路清理 | 数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；用户 QQ 缓存图片未被删除。 |
-| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；远端 `main` 为公开仓库，最近一次已验证的实现基线为 `1e0f4e3655eaf9aee65102b46403b9e0a2743a96`，隔离暂存副本已同步。 |
+| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；远端 `main` 为公开仓库，最新推送提交为 `f8bd590ff8420cace5e7165e4a7c2914e6b009f5`，对应 CI 正在运行，隔离暂存副本已同步。 |
 
 ## 已实现但尚未正式验收
 
 | 范围 | 当前状态与缺失证据 |
 | --- | --- |
-| OpenCV SIFT | `vision_opencv.rs` 已实现 pHash 一级短路、BFMatcher KNN、Lowe ratio、RANSAC Homography、coverage、reprojection error、调试匹配图、版本化颜色/描述子缓存和明显色差负向辅助惩罚；用户态 OpenCV 4.13.0 + Clang 环境下 `cargo check`、feature clippy 和 79 项 feature 单测通过；公开 CI run `34815340614` 又以固定 OpenCV 4.13.0 + LLVM 20.1.8 完成 Windows 原生 `check/test/clippy`。pHash 短路没有几何证据，因此不满足 QQ 撤回门槛。 |
+| OpenCV SIFT | `vision_opencv.rs` 已实现 pHash 一级短路、BFMatcher KNN、Lowe ratio、RANSAC Homography、coverage、reprojection error、调试匹配图、版本化颜色/描述子缓存和明显色差负向辅助惩罚；描述子缓存现绑定实际源图 SHA-256 与提取器指纹，预测缓存绑定源码/配置/采样引擎指纹；用户态 OpenCV 4.13.0 + Clang 环境下 `cargo check`、feature clippy 和 feature 单测通过；公开 CI 以固定 OpenCV 4.13.0 + LLVM 20.1.8 完成 Windows 原生 `check/test/clippy`。pHash 短路没有几何证据，因此不满足 QQ 撤回门槛。 |
 | OpenCV 冒烟 | feature 单测验证自生成纹理图的 SIFT 几何自匹配、缩放/旋转/裁剪/JPEG/文字/模糊鲁棒性、无关纹理拒绝、描述子缓存 round-trip、PNG 调试图和静态 P95；2026-09-14 显式环境变量指向本地缓存图片时，Rust Windows decoder + OpenCV smoke 实测奶龙 `NAILONG 0.980`、奶蛙 `NAIWA_FROG 0.980`，OTHER 图片返回 `OTHER`，真实静态 P95 `1.3004ms`。本地 304 条验证 manifest（奶龙 178、奶蛙 4、OTHER 122）重新处理 304、跳过 0、奶龙正确 1、奶蛙正确 2、OTHER/UNKNOWN 122、`false_target_label=0`、`false_recall=0`；真实动画为 39 帧抽样 12 帧，P95 `154.3228ms`，未达到奶蛙严格门槛。另有回归测试确认动画参考图和查询图使用相同采样策略。该证据不是完整准确率验收，也不是训练数据或发布包内容。 |
 | Windows NSIS 本机包 | 2026-09-13 OpenCV 专用 Tauri release build 与 NSIS 产物退出码 0；最终安装包 18,406,382 bytes，SHA-256 `4B1BBAF9C004692057A38BA6FA7413ABE2D52AA674074C2F098F7C5A32C6FBE1`。隔离目录安装后包含 `nlnf-desktop.exe`、`opencv_world4130.dll` 和 `uninstall.exe`；静默安装退出码 0；实际启动 `tauri.localhost` UI，显示初始化向导和离线分类边界；此前同一运行时构建已完成两类参考图添加、奶龙/奶蛙/负例三张识别，随后卸载退出码 0，安装目录和隔离应用数据均消失。仅代表当前机器，未覆盖第二台机器、Defender 或签名。 |
 | 动图 | Rust decoder 已有采样边界，视觉层有多帧严格奶蛙门槛；真实 GIF smoke 已验证解码和性能，但仍缺真实奶蛙动画正例、Animated WebP 和完整 QQ 场景证据。 |

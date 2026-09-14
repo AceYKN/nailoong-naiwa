@@ -67,6 +67,7 @@ pub struct ReferenceRecord {
 pub struct PredictionCacheRecord {
     pub image_sha256: String,
     pub reference_set_version: u64,
+    pub engine_fingerprint: String,
     pub label: String,
     pub nailong_score: f64,
     pub naiwa_frog_score: f64,
@@ -98,6 +99,10 @@ impl AppDatabase {
     }
 
     pub fn reference_set_hash(&self) -> Result<String, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn verified_reference_set_hash(&self) -> Result<String, StorageError> {
         Err(Self::unsupported(&self.path))
     }
 
@@ -151,6 +156,7 @@ impl AppDatabase {
         &self,
         _: &str,
         _: u64,
+        _: &str,
     ) -> Result<Option<PredictionCacheRecord>, StorageError> {
         Err(Self::unsupported(&self.path))
     }

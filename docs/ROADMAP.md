@@ -26,18 +26,19 @@
 ## Phase 3 — ReferenceManager and cache
 
 - [x] 参考图初始化向导：识别页提供奶龙/奶蛙两步引导，每类至少 1 张即可开始
-- [x] 添加、删除和数量上限 10 张（桌面 UI 已接通并加载缩略图）
+- [x] 添加、删除、多选导入和数量上限 10 张（桌面 UI 已接通并加载缩略图）
 - [x] 保存 SHA-256、pHash、关键点、描述子、尺寸和来源元数据（描述子缓存为版本化二进制）
-- [x] SQLite `reference_images`、`settings`、`prediction_cache` 和消息幂等表的 v4 schema
+- [x] SQLite `reference_images`、`settings`、`prediction_cache` 和消息幂等表的 v5 schema
 - [x] `reference_set_version` 在添加/删除时递增，且与 SQLite 参考图变更保持同一事务
-- [x] 缓存键采用 `image_sha256 + reference_set_version`
+- [x] 缓存键采用 `image_sha256 + reference_set_version + engine_fingerprint`；旧缓存迁移后不会被复用
+- [x] 描述子缓存绑定实际参考图 SHA-256、提取器指纹和版本化二进制格式；Reference Bank 哈希在 QQ 安全门禁前重新读取并校验文件字节
 - [x] 新增参考图不需要训练或重启即可更新数据库版本
 
 ## Phase 4 — Desktop MVP (v0.1)
 
 - [x] 用 VisionEngine 作为桌面端分类路径（OpenCV feature build 已验证）
 - [x] 识别页支持拖拽、批量上传、结果卡片和 UNKNOWN fail-closed
-- [x] 参考图页提供每类 1~10 张管理
+- [x] 参考图页提供每类 1~10 张管理与按剩余名额多选导入
 - [x] 识别失败时可将当前图片立即加入指定 Reference Bank
 - [x] 结果卡片显示 MatchResult 技术指标
 - [x] 全流程离线 smoke test：隔离 Tauri/WebView 与最新 NSIS 包均完成 1 张奶龙 + 1 张奶蛙 + 1 张负例，结果为奶龙 98%、奶蛙 98%、OTHER
