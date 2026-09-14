@@ -773,7 +773,7 @@ function App() {
     } finally {
       setQqBusy(false);
     }
-  }, []);
+  }, [qqStatus.autoRecallAvailable]);
 
   const renderQq = () => (
     <div className="settings-page qq-page">
