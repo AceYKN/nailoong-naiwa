@@ -1551,13 +1551,14 @@ mod tests {
             );
             return;
         };
-        let rows = std::fs::read_to_string(manifest)
+        let raw_rows = std::fs::read_to_string(manifest)
             .expect("read validation manifest")
             .lines()
             .map(|line| serde_json::from_str::<ValidationRow>(line).expect("parse validation row"))
             .collect::<Vec<_>>();
+        let raw_row_count = raw_rows.len();
         let mut seen = HashSet::new();
-        let rows = rows
+        let rows = raw_rows
             .into_iter()
             .filter(|row| seen.insert(row.source_relative_path.clone()))
             .collect::<Vec<_>>();
@@ -1702,6 +1703,10 @@ mod tests {
             "negative samples met the strict recall gate"
         );
         if release_gate_requested() {
+            assert_eq!(
+                raw_row_count, unique_row_count,
+                "release validation manifest contains duplicate paths"
+            );
             assert_eq!(
                 skipped, 0,
                 "release validation cannot contain missing files: {skipped} skipped"

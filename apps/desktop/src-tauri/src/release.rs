@@ -85,7 +85,7 @@ pub fn embedded_certificate() -> Option<ValidationCertificate> {
 pub fn certificate_is_well_formed(certificate: &ValidationCertificate) -> bool {
     let defaults = VisionThresholds::default();
     certificate.schema_version == VALIDATION_CERTIFICATE_SCHEMA_VERSION
-        && !certificate.git_sha.trim().is_empty()
+        && is_git_revision(&certificate.git_sha)
         && is_sha256(&certificate.reference_set_sha256)
         && certificate
             .thresholds_sha256
@@ -107,7 +107,11 @@ pub fn certificate_matches_reference_set(
     let Some(certificate) = embedded_certificate() else {
         return false;
     };
+    let Some(build_git_sha) = option_env!("NLNF_BUILD_GIT_SHA") else {
+        return false;
+    };
     certificate_is_well_formed(&certificate)
+        && certificate.git_sha.eq_ignore_ascii_case(build_git_sha)
         && certificate
             .reference_set_sha256
             .eq_ignore_ascii_case(current_reference_set_hash)
@@ -118,6 +122,10 @@ pub fn certificate_matches_reference_set(
 
 fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_git_revision(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -171,5 +179,16 @@ mod tests {
         assert!(certificate_is_well_formed(&certificate));
         certificate.false_recall = 1;
         assert!(!certificate_is_well_formed(&certificate));
+    }
+
+    #[test]
+    fn certificate_git_sha_is_required_to_be_a_real_revision() {
+        let mut certificate = valid_certificate();
+        certificate.git_sha.clear();
+        assert!(!certificate_is_well_formed(&certificate));
+        certificate.git_sha = "not-a-commit".to_owned();
+        assert!(!certificate_is_well_formed(&certificate));
+        certificate.git_sha = "a".repeat(40);
+        assert!(certificate_is_well_formed(&certificate));
     }
 }
