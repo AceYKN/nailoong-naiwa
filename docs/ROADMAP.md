@@ -29,7 +29,7 @@
 - [x] 添加、删除、多选导入和数量上限 10 张（桌面 UI 已接通并加载缩略图）
 - [x] 保存 SHA-256、pHash、关键点、描述子、尺寸和来源元数据（描述子缓存为版本化二进制）
 - [x] SQLite `reference_images`、`settings`、`prediction_cache` 和消息幂等表的 v5 schema
-- [x] `reference_set_version` 在添加/删除时递增，且与 SQLite 参考图变更保持同一事务
+- [x] `reference_set_version` 在添加/删除时递增，且与 SQLite 参考图变更保持同一事务；参考图增删或识别阈值变更会在事务内持久将 `AUTO_RECALL` 降级为 `OBSERVE`
 - [x] 缓存键采用 `image_sha256 + reference_set_version + engine_fingerprint`；旧缓存迁移后不会被复用
 - [x] 描述子缓存绑定实际参考图 SHA-256、提取器指纹和版本化二进制格式；Reference Bank 哈希在 QQ 安全门禁前重新读取并校验文件字节
 - [x] 新增参考图不需要训练或重启即可更新数据库版本
@@ -65,7 +65,7 @@
 
 - [x] 将 `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 和动画多帧条件固化为可执行决策门禁
 - [x] 提供独立于运行时的冻结验证 manifest 生成器与 release-gate runner；未满足数据门槛时 fail closed
-- [x] 普通构建默认拒绝 `AUTO_RECALL`，旧数据库配置自动降级为 `OBSERVE`；只有显式 `auto-recall-release` 特性构建才可进入后续发布门禁
+- [x] 普通构建默认拒绝 `AUTO_RECALL`，旧数据库配置自动降级为 `OBSERVE`；参考图或识别阈值变更也会持久降级现有 `AUTO_RECALL` 群组；只有显式 `auto-recall-release` 特性构建才可进入后续发布门禁
 - [x] release feature 必须嵌入冻结验证 certificate，并在运行时绑定完整 Reference Bank、manifest/视觉/缓存指纹、精确 OpenCV runtime、阈值和 Token；失配自动降级为 `OBSERVE`
 - [ ] `VERY_HIGH`、严格 margin、inliers、ratio、coverage、reprojection 全部通过
 - [ ] 100+ 奶龙、100+ 奶蛙、1000+ 其他、50+ GIF 的冻结验证材料
@@ -75,8 +75,8 @@
 ## Phase 8 — Packaging and repository release
 
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）；公共 CI 现执行 OpenCV NSIS 构建并检查 exe、DLL 和安装包资源
-- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；最近一次代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 的 CI run `34894318396` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
-- [x] 成功的 OpenCV CI run 上传短期 Windows 验证 artifact（代码验证提交 `9ed93412edfe9e7e4c220dce0844abfe7e7dcf15` 的 run `34894318396` 上传 `nlnf-windows-opencv-9ed93412edfe9e7e4c220dce0844abfe7e7dcf15`，46,884,114 bytes，保留至 2026-09-28；包含 NSIS 安装包、exe 和匹配 runtime DLL；不等同于正式 Auto Recall release）
+- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；最近一次代码验证提交 `8ed7c52eceb2ae01223ecb6e23e776ae78d5a48d` 的 CI run `34896983425` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
+- [x] 成功的 OpenCV CI run 上传短期 Windows 验证 artifact（代码验证提交 `8ed7c52eceb2ae01223ecb6e23e776ae78d5a48d` 的 run `34896983425` 上传 `nlnf-windows-opencv-8ed7c52eceb2ae01223ecb6e23e776ae78d5a48d`，46,884,633 bytes，保留至 2026-09-28；包含 NSIS 安装包、exe 和匹配 runtime DLL；不等同于正式 Auto Recall release）
 - [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
 - [x] 清理旧 Git 历史中的本地敏感标识后，创建干净公开 GitHub 初始提交
