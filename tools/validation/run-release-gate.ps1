@@ -82,6 +82,10 @@ foreach ($path in @($opencvBin, $opencvInclude, $opencvLib, $LlvmBin)) {
         throw "OpenCV/Clang path does not exist: $path"
     }
 }
+$clangPath = Join-Path $LlvmBin 'clang.exe'
+if (-not (Test-Path -LiteralPath $clangPath -PathType Leaf)) {
+    throw "LLVM clang binary was not found: $clangPath"
+}
 $runtimeName = 'opencv_world4130'
 $runtimeDll = Join-Path $opencvBin "$runtimeName.dll"
 if (-not (Test-Path -LiteralPath $runtimeDll -PathType Leaf)) {
@@ -95,6 +99,7 @@ $env:OPENCV_LINK_PATHS = $opencvLib
 $env:OPENCV_WORLD_NAME = 'opencv_world4130'
 $env:OPENCV_LINK_LIBS = $env:OPENCV_WORLD_NAME
 $env:LIBCLANG_PATH = $LlvmBin
+$env:CLANG_PATH = $clangPath
 $env:Path = "$opencvBin;$LlvmBin;$env:Path"
 $env:NLNF_VALIDATION_ROOT = (Resolve-Path -LiteralPath $ValidationRoot).Path
 $env:NLNF_VALIDATION_MANIFEST = $manifestPath

@@ -14,6 +14,7 @@ $env:OPENCV_LINK_PATHS = "$env:OPENCV_DIR\x64\vc16\lib"
 $env:OPENCV_WORLD_NAME = "opencv_world4130"
 $env:OPENCV_LINK_LIBS = $env:OPENCV_WORLD_NAME
 $env:LIBCLANG_PATH = "C:\path\to\llvm\bin"
+$env:CLANG_PATH = "$env:LIBCLANG_PATH\clang.exe"
 $env:Path = "$env:OPENCV_DIR\x64\vc16\bin;$env:LIBCLANG_PATH;$env:Path"
 ```
 
@@ -23,8 +24,9 @@ Run the preflight before starting the native Tauri path:
 pnpm --dir apps/desktop tauri:doctor:opencv
 ```
 
-It only checks the local headers, import library, LLVM `libclang.dll`, and
-release runtime DLL; it does not install or download anything. The OpenCV
+It only checks the local headers, import library, LLVM `libclang.dll`,
+`clang.exe`, and release runtime DLL; it does not install or download anything.
+The OpenCV
 development and bundle commands run the same check automatically, so a missing
 native dependency is reported before Tauri or the Rust binding generator runs.
 

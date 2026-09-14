@@ -79,8 +79,10 @@ if ($null -ne $libclangDir) {
   $libclangFile = Join-Path $libclangDir 'libclang.dll'
 }
 Require-File $libclangFile 'LLVM libclang runtime'
-if (-not [string]::IsNullOrWhiteSpace($env:CLANG_PATH)) {
-  Require-File $env:CLANG_PATH 'CLANG_PATH'
+if ([string]::IsNullOrWhiteSpace($env:CLANG_PATH)) {
+  Add-Failure 'CLANG_PATH is not set.'
+} else {
+  Require-File $env:CLANG_PATH 'CLANG_PATH (clang.exe)'
 }
 
 if ($RequireRuntime) {
