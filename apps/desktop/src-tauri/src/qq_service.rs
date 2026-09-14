@@ -122,7 +122,7 @@ impl QqServiceState {
             event_endpoint: runtime.event_endpoint.clone(),
             token_configured: runtime.token_configured,
             auto_recall_available: auto_recall_available(),
-            groups: runtime.groups.clone(),
+            groups: runtime.groups.iter().map(normalize_group_view).collect(),
             recent_events: runtime.recent_events.iter().cloned().collect(),
             last_error: runtime.last_error.clone(),
         }
@@ -279,7 +279,7 @@ pub fn connect_qq(
         event_endpoint: runtime.event_endpoint.clone(),
         token_configured: runtime.token_configured,
         auto_recall_available: auto_recall_available(),
-        groups: runtime.groups.clone(),
+        groups: runtime.groups.iter().map(normalize_group_view).collect(),
         recent_events: runtime.recent_events.iter().cloned().collect(),
         last_error: runtime.last_error.clone(),
     })
@@ -559,8 +559,25 @@ fn group_view(record: &QQGroupRecord) -> QqGroupView {
     QqGroupView {
         group_id: record.group_id.clone(),
         group_name: record.group_name.clone(),
-        mode: record.mode.clone(),
+        mode: effective_mode_name(&record.mode),
         recall_threshold: record.recall_threshold,
+    }
+}
+
+fn effective_mode_name(value: &str) -> String {
+    parse_group_mode(value)
+        .map(effective_group_mode)
+        .map(mode_name)
+        .unwrap_or("OFF")
+        .to_owned()
+}
+
+fn normalize_group_view(group: &QqGroupView) -> QqGroupView {
+    QqGroupView {
+        group_id: group.group_id.clone(),
+        group_name: group.group_name.clone(),
+        mode: effective_mode_name(&group.mode),
+        recall_threshold: group.recall_threshold,
     }
 }
 
@@ -664,8 +681,8 @@ fn classify_bytes_for_qq(_app: &AppHandle, _bytes: &[u8]) -> Result<Classificati
 #[cfg(test)]
 mod tests {
     use super::{
-        auto_recall_available, best_summary, effective_group_mode, mode_name, parse_group_mode,
-        validate_requested_mode, QqServiceState,
+        auto_recall_available, best_summary, effective_group_mode, mode_name, normalize_group_view,
+        parse_group_mode, validate_requested_mode, QqGroupView, QqServiceState,
     };
     use crate::{
         moderation::GroupMode,
@@ -719,6 +736,23 @@ mod tests {
                 GroupMode::Observe
             );
         }
+    }
+
+    #[test]
+    fn stale_auto_recall_is_presented_as_observe_without_the_release_feature() {
+        let group = QqGroupView {
+            group_id: "10001".to_owned(),
+            group_name: "test".to_owned(),
+            mode: "AUTO_RECALL".to_owned(),
+            recall_threshold: 0.98,
+        };
+        let normalized = normalize_group_view(&group);
+        let expected = if auto_recall_available() {
+            "AUTO_RECALL"
+        } else {
+            "OBSERVE"
+        };
+        assert_eq!(normalized.mode, expected);
     }
 
     #[test]
