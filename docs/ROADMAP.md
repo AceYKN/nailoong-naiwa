@@ -74,7 +74,7 @@
 ## Phase 8 — Packaging and repository release
 
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）；公共 CI 现执行 OpenCV NSIS 构建并检查 exe、DLL 和安装包资源
-- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；SIFT 基线 `4b6cb61163cc35c9a2d66dbdb62688ad412650d7` 的 CI run `34845668082` 已通过；AKAZE fallback 提交 `6d53b4cbf131c9d786e554850d1b160950e7f24a` 的 CI run `34851419803` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
+- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；当前公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 的 CI run `34856737853` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
 - [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
 - [x] 清理旧 Git 历史中的本地敏感标识后，创建干净公开 GitHub 初始提交

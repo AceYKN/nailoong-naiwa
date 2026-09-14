@@ -8,7 +8,7 @@
 | --- | --- |
 | v2 方向 | `spec-v2.md` 已将产品定义为零训练、多参考图、传统特征匹配；DeepSeek、训练、ONNX 不属于运行依赖。 |
 | Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：68 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，并将旧数据库中的该模式降级为 `OBSERVE`；release manifest 也拒绝重复路径。 |
-| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；公开 Windows OpenCV feature CI 在 AKAZE fallback 提交上通过 82 项库测试、clippy 和打包检查；release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
+| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 的 Windows OpenCV feature CI run `34856737853` 通过 82 项库测试、clippy、Tauri OpenCV NSIS 构建、runtime staging 和资源检查；release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
 | ReferenceManager | 本地单元测试验证 1~10 张上限、源文件不修改、SHA-256/pHash 元数据与原子复制。 |
 | SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。旧 v4 缓存迁移为无指纹条目并自动失效。 |
 | 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败。浏览器预览检查无 console error。 |
@@ -19,7 +19,7 @@
 | 当前图片加入参考库 | 识别队列可明确选择奶龙或奶蛙，将图片复制进对应 Reference Bank 并立即刷新版本；不会修改源文件。 |
 | 输入边界 | Rust 侧保留 25 MiB、8192×8192、5000 万像素、500 帧，以及 PNG/JPEG/GIF/WebP 的受限检查。 |
 | v1 链路清理 | 数据集、训练、ONNX、模型包、DeepSeek 预标注和批量标注工具已从当前 checkout 移除；用户 QQ 缓存图片未被删除。 |
-| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；AKAZE fallback 代码提交 `6d53b4cbf131c9d786e554850d1b160950e7f24a` 对应 CI run `34851419803` 六项全部通过，文档同步提交会复跑同一套 CI，隔离暂存副本已同步。 |
+| 公开仓库 | 用户已确认公开创建 `AceYKN/nailoong-naiwa`；当前公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 对应 CI run `34856737853` 六项全部通过，隔离暂存副本与 `origin/main` 已同步。 |
 
 ## 已实现但尚未正式验收
 
@@ -37,9 +37,9 @@
 
 | 范围 | 状态 |
 | --- | --- |
-| OpenCV 原生环境 | 用户态工具目录和公开 CI 均已用固定 OpenCV 4.13.0 + LLVM 20.1.8 验证；AKAZE fallback 代码的公开 CI run `34851419803` 已通过；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器、Defender 和签名仍需独立验证。 |
+| OpenCV 原生环境 | 用户态工具目录和公开 CI 均已用固定 OpenCV 4.13.0 + LLVM 20.1.8 验证；当前公开提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 的 CI run `34856737853` 已通过；开发环境和 OpenCV 专用 NSIS staging 已可复现，第二台机器、Defender 和签名仍需独立验证。 |
 | `OTHER` / `UNKNOWN` | 已区分：低分且两类均无几何 inlier 返回 `OTHER`；模糊或有部分证据但不足以确定时返回 `UNKNOWN`。仍需真实负例冻结集校准边界。 |
-| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；AKAZE fallback 代码提交 `6d53b4cbf131c9d786e554850d1b160950e7f24a` 的 GitHub CI run `34851419803` 中，仓库卫生、前端、Rust Ubuntu、Rust Windows、Windows Tauri 打包和 Windows OpenCV 原生 feature job 全部成功。 |
+| 公开 GitHub | `AceYKN/nailoong-naiwa` 已确认公开；当前提交 `fde096fb9ebda46b2ceb8ed6c10a3d5894e43072` 的 GitHub CI run `34856737853` 中，仓库卫生、前端、Rust Ubuntu、Rust Windows、Windows Tauri 打包和 Windows OpenCV 原生 feature job 全部成功。 |
 | DeepSeek key | 不再调用或上传图片；此前暴露过旧 key，用户应在服务商侧撤销。新 key 只要仍在本机用户环境变量中，也建议完成迁移后清除。 |
 
 ## 重跑核心验证
