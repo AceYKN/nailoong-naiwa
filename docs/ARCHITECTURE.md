@@ -8,7 +8,7 @@ Rust desktop core
    ├── bounded image decode and frame sampling
    ├── pHash coarse filter
    ├── OpenCV SIFT feature extraction (AKAZE fallback when SIFT has no usable descriptors)
-   ├── BF/FLANN + Lowe Ratio + RANSAC Homography
+   ├── BF/FLANN + mutual Lowe Ratio + RANSAC Homography
    ├── deterministic scoring and DecisionEngine
    ├── ReferenceManager + versioned SQLite cache
    ├── QQAdapter (Mock → Observe → guarded Auto Recall)
@@ -39,11 +39,13 @@ list and source notes are recorded in [`REFERENCE_ASSETS.md`](REFERENCE_ASSETS.m
 2. Decode JPEG, PNG, WebP or GIF; resize while preserving aspect ratio and cap the working dimension.
 3. Compute pHash for fast same/near-image candidates.
 4. Extract SIFT descriptors. If SIFT produces no usable keypoints/descriptors, fall back to OpenCV AKAZE. The descriptor kind is stored with the result and cache, and matching selects L2 for SIFT or Hamming for AKAZE.
-5. Compare query descriptors with each eligible reference using BF/FLANN KNN with `k=2`.
-6. Apply Lowe ratio filtering, then RANSAC Homography.
-7. Store `MatchResult` including good matches, inliers, inlier ratio, spatial coverage, reprojection error and pHash distance.
+5. Compare query descriptors with each eligible reference using BF/FLANN KNN with `k=2` in both directions.
+6. Keep only mutual Lowe-ratio pairs, then run RANSAC Homography.
+7. Store `MatchResult` including good matches, inliers, inlier ratio, the smaller query/reference spatial coverage, reprojection error and pHash distance.
 8. Compute one score per reference and use the maximum score per class.
-9. Apply `T_MATCH` and `MIN_MARGIN`; ambiguous or weak evidence is `UNKNOWN`.
+9. Apply `T_MATCH`, `MIN_MARGIN` and ordinary geometric evidence (inliers,
+   inlier ratio, minimum coverage and reprojection error); ambiguous or weak
+   evidence is `UNKNOWN`.
 
 Color/HSV is auxiliary only. pHash alone cannot recognize a different pose. The production implementation must not use a neural model or a cloud API.
 

@@ -2,13 +2,13 @@
 
 奶龙 / 奶蛙的 Windows 本地参考图特征匹配与 QQ 安全处理系统。
 
-当前产品规格是 [Specification v2.0](spec-v2.md)：零训练、零云端预标注、零 ONNX。系统将每类 1~10 张参考图作为 Reference Bank，使用 pHash 粗筛、SIFT/AKAZE 局部特征、Lowe Ratio Test 和 RANSAC 几何验证，输出 `NAILONG`、`NAIWA_FROG`、`OTHER` 或 `UNKNOWN`。
+当前产品规格是 [Specification v2.0](spec-v2.md)：零训练、零云端预标注、零 ONNX。系统将每类 1~10 张参考图作为 Reference Bank，使用 pHash 粗筛、SIFT/AKAZE 局部特征、双向 Lowe Ratio 互为最近邻过滤和 RANSAC 几何验证，输出 `NAILONG`、`NAIWA_FROG`、`OTHER` 或 `UNKNOWN`。
 
 ## 当前状态
 
 - v2 规格已经固化到 `spec-v2.md`。
 - Rust 决策层、pHash、ReferenceManager、参考图 SQLite 表和新版桌面 UI 已实现；当前 Rust 单元测试与前端构建可独立运行。
-- OpenCV SIFT 主路径、无可用描述子时的 AKAZE fallback、RANSAC 和版本化描述子缓存已接入 feature-gated 后端；流水线版本变更会使旧缓存和旧 release certificate 失效。未设置原生依赖时桌面识别按钮仍会 fail closed，不会伪造 v2 识别结果。
+- OpenCV SIFT 主路径、无可用描述子时的 AKAZE fallback、双向 Lowe 匹配、双侧 coverage、RANSAC 和版本化描述子缓存已接入 feature-gated 后端；流水线版本变更会使旧缓存和旧 release certificate 失效。未设置原生依赖时桌面识别按钮仍会 fail closed，不会伪造 v2 识别结果。
 - OneBot 11 loopback Adapter 已接入桌面 QQ 页面：连接、反向事件、OFF/OBSERVE/AUTO_RECALL 群模式和 moderation_log 持久化均有本机 mock E2E；默认仍为 OFF。
 - QQ 默认保持 `OFF`。真实 Adapter、Observe 和 Auto Recall 都必须在本地测试与人工验收后才会开放。
 - `AUTO_RECALL` 还额外要求冻结验证门禁生成的 certificate、精确未变更的完整 Reference Bank、视觉/缓存指纹、OpenCV runtime SHA-256 和 OneBot Token；普通构建与证书失配时自动保持 `OBSERVE`。

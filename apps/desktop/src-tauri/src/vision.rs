@@ -9,8 +9,11 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_REFERENCES_PER_CLASS: usize = 10;
 pub const MIN_ORDINARY_GEOMETRIC_INLIERS: u32 = 6;
+pub const MIN_ORDINARY_GEOMETRIC_RATIO: f32 = 0.55;
+pub const MIN_ORDINARY_GEOMETRIC_COVERAGE: f32 = 0.10;
+pub const MAX_ORDINARY_REPROJECTION_ERROR: f32 = 8.0;
 pub const MAX_ORDINARY_PHASH_SHORTCUT_DISTANCE: u32 = 4;
-pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-akaze-ransac-v4";
+pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-akaze-ransac-v6";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -215,7 +218,10 @@ pub fn classify(
 }
 
 fn ordinary_evidence(value: &MatchResult) -> bool {
-    value.inlier_count >= MIN_ORDINARY_GEOMETRIC_INLIERS
+    (value.inlier_count >= MIN_ORDINARY_GEOMETRIC_INLIERS
+        && value.inlier_ratio >= MIN_ORDINARY_GEOMETRIC_RATIO
+        && value.coverage >= MIN_ORDINARY_GEOMETRIC_COVERAGE
+        && value.reprojection_error <= MAX_ORDINARY_REPROJECTION_ERROR)
         || (value.good_match_count == 0
             && value
                 .phash_distance
@@ -331,6 +337,7 @@ mod tests {
     use super::{
         classify, classify_frames, recall_eligible, score_match, validate_reference_count,
         ClassificationLabel, ConfidenceLevel, MatchResult, ReferenceClass, VisionThresholds,
+        MIN_ORDINARY_GEOMETRIC_COVERAGE,
     };
 
     fn match_result(class: ReferenceClass, score: f32) -> MatchResult {
@@ -387,6 +394,14 @@ mod tests {
         weak.inlier_count = 4;
         weak.phash_distance = Some(32);
         let result = classify(&[weak], VisionThresholds::default(), 1).unwrap();
+        assert_eq!(result.label, ClassificationLabel::Unknown);
+    }
+
+    #[test]
+    fn ordinary_classification_rejects_clustered_geometric_evidence() {
+        let mut clustered = match_result(ReferenceClass::Nailong, 0.82);
+        clustered.coverage = MIN_ORDINARY_GEOMETRIC_COVERAGE - 0.01;
+        let result = classify(&[clustered], VisionThresholds::default(), 1).unwrap();
         assert_eq!(result.label, ClassificationLabel::Unknown);
     }
 

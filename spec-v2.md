@@ -39,13 +39,15 @@ references/
 decode → 尺寸限制/保比例缩放 → pHash 粗筛
       → SIFT 或 AKAZE 特征提取
       → BF/FLANN KNN(k=2)
-      → Lowe Ratio Test
+      → 双向 Lowe Ratio / 互为最近邻过滤
       → RANSAC Homography
-      → inliers / ratio / coverage / reprojection error
+      → inliers / ratio / 双侧 coverage / reprojection error
       → MatchResult → Decision Engine
 ```
 
 OpenCV 是生产视觉后端；Rust/Tauri 桌面端直接调用它。颜色和 HSV 只能作辅助，不能单独决定类别。pHash 只负责同图/近似图快速命中，不能替代局部特征和几何验证。
+
+局部特征匹配必须同时满足查询图到参考图、参考图到查询图的 Lowe Ratio Test，只有互为最近邻的描述子对才进入 RANSAC。空间 coverage 取查询图和参考图两侧覆盖率的较小值，避免一小块重复纹理制造高分匹配。
 
 静态图片必须支持 JPEG、PNG、WebP、GIF；BMP/AVIF 可作为后续扩展。GIF/Animated WebP 均匀抽取最多 8~12 帧，普通识别取最高有效帧分数；QQ 自动撤回至少要求两个采样帧通过严格几何门槛。
 
@@ -67,6 +69,7 @@ phashDistance, score
 ```text
 max(nailongScore, naiwaScore) >= T_MATCH
 winner - loser >= MIN_MARGIN
+几何匹配：inliers、inlierRatio、coverage、reprojection error 均达到普通识别下限
 ```
 
 否则返回 `UNKNOWN`。QQ `AUTO_RECALL` 还必须满足更高的 `T_RECALL`、最小 inlier 数、最小 inlier ratio、最小 coverage、严格 margin 和 `VERY_HIGH` confidence。
@@ -94,7 +97,7 @@ ReferenceManager 负责添加、删除、预计算和加载参考图的 pHash、
 ### v0.1
 
 - 每类添加 1 张参考图即可离线识别奶龙、奶蛙、其他/无法确定。
-- 支持 JPEG/PNG/WebP/GIF 和基础 pHash、SIFT/AKAZE、Lowe Ratio、RANSAC 决策。
+- 支持 JPEG/PNG/WebP/GIF 和基础 pHash、SIFT/AKAZE、双向 Lowe Ratio、RANSAC 决策。
 - 参考图缺失时不生成假结果。
 
 ### v0.2
@@ -109,7 +112,7 @@ ReferenceManager 负责添加、删除、预计算和加载参考图的 pHash、
 
 ### 测试
 
-测试重点是传统视觉鲁棒性：缩放、旋转、裁剪、遮挡、JPEG 压缩、文字覆盖、GIF 采样、pHash 命中、RANSAC 排除错误匹配，以及黄色卡通人物/恐龙/皮卡丘/普通照片等负例。测试集是验证材料，不是训练集。
+测试重点是传统视觉鲁棒性：缩放、旋转、裁剪、遮挡、JPEG 压缩、文字覆盖、GIF 采样、pHash 命中、互为最近邻与 RANSAC 排除错误匹配，以及黄色卡通人物/恐龙/皮卡丘/普通照片等负例。测试集是验证材料，不是训练集。
 
 ### 性能
 

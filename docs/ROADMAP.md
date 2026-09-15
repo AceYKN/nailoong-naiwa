@@ -16,8 +16,8 @@
 - [x] 将 pHash 接入候选粗筛并持久化描述子
 - [x] SIFT 主路径源码与 feature-gated OpenCV 后端
 - [x] AKAZE 备用路径（SIFT 无可用关键点/描述子时回退到 OpenCV AKAZE；按描述子类型选择 L2/Hamming 匹配，描述子缓存格式升级到 v4）
-- [x] BFMatcher KNN(k=2) 与 Lowe Ratio Test 源码
-- [x] RANSAC Homography、inliers、空间 coverage 和 reprojection error 源码
+- [x] BFMatcher 双向 KNN(k=2)、Lowe Ratio 与互为最近邻过滤源码
+- [x] RANSAC Homography、inliers、查询/参考图较小 coverage 和 reprojection error 源码
 - [x] 静态 JPEG/PNG/WebP/GIF 统一解码边界
 - [x] GIF/Animated WebP 的采样边界与多帧严格门槛
 - [x] 开发者模式输出匹配点与几何调试图

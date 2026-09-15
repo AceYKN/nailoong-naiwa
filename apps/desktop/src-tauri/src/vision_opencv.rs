@@ -5,6 +5,7 @@
 //! [`crate::vision`] so they remain testable without a native CV runtime.
 
 use std::{
+    collections::HashSet,
     io::{Cursor, Read},
     path::Path,
 };
@@ -175,7 +176,7 @@ impl Default for OpenCvConfig {
 pub fn descriptor_fingerprint(config: OpenCvConfig) -> String {
     let build_sha = option_env!("NLNF_BUILD_GIT_SHA").unwrap_or("unversioned");
     let payload = format!(
-        "pipeline={}\nbuild={build_sha}\ndescriptor_version={}\nmax_working_dimension={}\nmax_keypoints={}\nlowe_ratio_bits={:08x}\nransac_threshold_bits={:016x}\nextractor_policy=sift_then_akaze\nsift_nfeatures={}\nsift_n_octave_layers=3\nsift_contrast_threshold_bits={:08x}\nsift_edge_threshold_bits={:08x}\nsift_sigma_bits={:08x}\nakaze_descriptor_type={}\nakaze_descriptor_size=0\nakaze_descriptor_channels={}\nakaze_threshold_bits={:08x}\nakaze_n_octaves=4\nakaze_n_octave_layers=4\nakaze_diffusivity={}\nakaze_max_points={}\n",
+        "pipeline={}\nbuild={build_sha}\ndescriptor_version={}\nmax_working_dimension={}\nmax_keypoints={}\nlowe_ratio_bits={:08x}\nransac_threshold_bits={:016x}\nextractor_policy=sift_then_akaze\nsift_nfeatures={}\nsift_n_octave_layers=3\nsift_contrast_threshold_bits={:08x}\nsift_edge_threshold_bits={:08x}\nsift_sigma_bits={:08x}\nakaze_descriptor_type={}\nakaze_descriptor_size=0\nakaze_descriptor_channels={}\nakaze_threshold_bits={:08x}\nakaze_n_octaves=4\nakaze_n_octave_layers=4\nakaze_diffusivity={}\nakaze_max_points={}\nmatching_policy=mutual_lowe_v1\ncoverage_policy=min_query_reference\n",
         VISION_PIPELINE_VERSION,
         DESCRIPTOR_VERSION,
         config.max_working_dimension,
@@ -505,6 +506,27 @@ impl OpenCvVisionEngine {
                 2,
             )
             .map_err(cv_error)?;
+        let mut reverse_knn_matches = Vector::<Vector<DMatch>>::new();
+        matcher
+            .knn_train_match_def(
+                &reference.descriptors,
+                &query.descriptors,
+                &mut reverse_knn_matches,
+                2,
+            )
+            .map_err(cv_error)?;
+        let reverse_good = reverse_knn_matches
+            .iter()
+            .filter_map(|pair| {
+                if pair.len() < 2 {
+                    return None;
+                }
+                let best = pair.get(0).ok()?;
+                let second = pair.get(1).ok()?;
+                (best.distance < self.config.lowe_ratio * second.distance)
+                    .then_some((best.train_idx, best.query_idx))
+            })
+            .collect::<HashSet<_>>();
         let mut good_matches = Vector::<DMatch>::new();
         for pair in knn_matches.iter() {
             if pair.len() < 2 {
@@ -512,7 +534,9 @@ impl OpenCvVisionEngine {
             }
             let best = pair.get(0).map_err(cv_error)?;
             let second = pair.get(1).map_err(cv_error)?;
-            if best.distance < self.config.lowe_ratio * second.distance {
+            if best.distance < self.config.lowe_ratio * second.distance
+                && reverse_good.contains(&(best.query_idx, best.train_idx))
+            {
                 good_matches.push(best);
             }
         }
@@ -573,7 +597,15 @@ impl OpenCvVisionEngine {
             .filter(|value| **value != 0)
             .count() as u32;
         let inlier_ratio = inlier_count as f32 / good_match_count as f32;
-        let coverage = spatial_coverage(&query_points, mask_values, query.width, query.height);
+        let query_coverage =
+            spatial_coverage(&query_points, mask_values, query.width, query.height);
+        let reference_coverage = spatial_coverage(
+            &reference_points,
+            mask_values,
+            reference.width,
+            reference.height,
+        );
+        let coverage = query_coverage.min(reference_coverage);
         let reprojection_error =
             reprojection_error(&query_points, &reference_points, mask_values, &homography)?;
         let base_score = vision::score_match(
@@ -614,8 +646,8 @@ impl OpenCvVisionEngine {
     }
 
     /// Render a side-by-side developer diagnostic. Green points/lines are
-    /// RANSAC inliers; red points are Lowe-filtered matches rejected by the
-    /// geometric model. The output is a PNG owned by the caller.
+    /// RANSAC inliers; red points are mutual Lowe-filtered matches rejected by
+    /// the geometric model. The output is a PNG owned by the caller.
     pub fn render_match_debug(
         &mut self,
         query_frame: &DecodedFrame,
