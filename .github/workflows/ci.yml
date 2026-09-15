@@ -261,6 +261,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $manifest = 'apps/desktop/src-tauri/Cargo.toml'
+          git config --local core.autocrlf true
           $trackedChanges = @(git diff --name-only HEAD)
           $untrackedChanges = @(git ls-files --others --exclude-standard)
           $allChanges = @($trackedChanges + $untrackedChanges | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -269,7 +270,7 @@ jobs:
             throw "Unexpected changes remain after the ordinary Tauri build: $($unexpectedChanges -join ', ')"
           }
           if ($trackedChanges -contains $manifest) {
-            git -c core.autocrlf=false restore --source=HEAD --staged --worktree -- $manifest
+            git restore --source=HEAD --staged --worktree -- $manifest
           }
           $remainingChanges = @(git status --porcelain=v1 --untracked-files=all)
           if ($remainingChanges.Count -gt 0) {
