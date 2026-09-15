@@ -202,6 +202,23 @@ impl AppDatabase {
         })
     }
 
+    pub fn builtin_reference_bank_seeded(&self) -> Result<bool, StorageError> {
+        Ok(self
+            .setting_value("builtin_reference_bank_seeded")?
+            .as_deref()
+            == Some("1"))
+    }
+
+    pub fn mark_builtin_reference_bank_seeded(&self) -> Result<(), StorageError> {
+        self.execute(
+            "INSERT INTO settings(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            |statement| {
+                bind_text(statement, 1, "builtin_reference_bank_seeded")?;
+                bind_text(statement, 2, "1")
+            },
+        )
+    }
+
     pub fn app_settings(&self) -> Result<(VisionThresholds, bool), StorageError> {
         let defaults = VisionThresholds::default();
         let thresholds = VisionThresholds {
@@ -1359,6 +1376,9 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let database = AppDatabase::open(&path).expect("Windows SQLite opens");
         assert_eq!(database.schema_version(), 5);
+        assert!(!database.builtin_reference_bank_seeded().unwrap());
+        database.mark_builtin_reference_bank_seeded().unwrap();
+        assert!(database.builtin_reference_bank_seeded().unwrap());
         database
             .upsert_qq_group(&QQGroupRecord {
                 group_id: "group-1".to_owned(),

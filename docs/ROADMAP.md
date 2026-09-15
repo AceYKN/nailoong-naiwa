@@ -33,6 +33,7 @@
 - [x] 缓存键采用 `image_sha256 + reference_set_version + engine_fingerprint`；旧缓存迁移后不会被复用
 - [x] 描述子缓存绑定实际参考图 SHA-256、提取器指纹和版本化二进制格式；Reference Bank 哈希在 QQ 安全门禁前重新读取并校验文件字节
 - [x] 新增参考图不需要训练或重启即可更新数据库版本
+- [x] 将 7 张人工审阅的默认参考图随 Tauri 二进制打包，并在 Windows 首次启动时安全初始化到本地 Reference Bank
 
 ## Phase 4 — Desktop MVP (v0.1)
 

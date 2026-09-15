@@ -100,6 +100,14 @@ impl AppDatabase {
         Err(Self::unsupported(&self.path))
     }
 
+    pub fn builtin_reference_bank_seeded(&self) -> Result<bool, StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
+    pub fn mark_builtin_reference_bank_seeded(&self) -> Result<(), StorageError> {
+        Err(Self::unsupported(&self.path))
+    }
+
     pub fn app_settings(&self) -> Result<(VisionThresholds, bool), StorageError> {
         Err(Self::unsupported(&self.path))
     }

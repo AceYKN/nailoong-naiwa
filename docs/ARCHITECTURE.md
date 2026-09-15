@@ -26,6 +26,13 @@ references/naiwa_frog/  1..10 reference images
 
 The minimum MVP is one reference per class. The data model must remain plural so a new pose, crop, GIF frame or close-up can be added without retraining or rebuilding a model.
 
+The repository bundles seven manually reviewed defaults under
+`apps/desktop/src-tauri/assets/reference-seed/`. On first Windows startup,
+the desktop shell copies them into the normal app-data Reference Bank. A class
+that already contains unrelated user references is preserved; the bundled
+defaults never overwrite or move a user's source files. The selected asset
+list and source notes are recorded in [`REFERENCE_ASSETS.md`](REFERENCE_ASSETS.md).
+
 ## Vision pipeline
 
 1. Validate bytes, dimensions, pixel count and animation limits before decode.

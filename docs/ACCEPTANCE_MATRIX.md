@@ -7,9 +7,10 @@
 | 范围 | 证据 |
 | --- | --- |
 | v2 方向 | `spec-v2.md` 已将产品定义为零训练、多参考图、传统特征匹配；DeepSeek、训练、ONNX 不属于运行依赖。 |
-| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：74 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，旧数据库中的该模式降级为 `OBSERVE`，参考图增删或识别阈值变更会在同一 SQLite 事务内持久降级为 `OBSERVE`，并且多图消息任一图片下载/识别失败时自动撤回降级为 Observe；release manifest 也拒绝重复路径。 |
-| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；代码验证提交 `8ed7c52eceb2ae01223ecb6e23e776ae78d5a48d` 的 Windows OpenCV feature CI run `34896983425` 通过 88 项库测试、clippy、Tauri OpenCV NSIS 构建、runtime staging、资源检查和 artifact 上传。release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
+| Rust 决策层 | `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets`：本次本机 75 项库测试通过；覆盖 pHash、参考图数量、分数、普通分类几何证据门槛、`OTHER/UNKNOWN`、置信度、动画严格门槛、WebP 静态/动画回退、存储、QQ 服务状态和严格门槛。新增回归测试确认普通构建拒绝 `AUTO_RECALL`，旧数据库中的该模式降级为 `OBSERVE`，参考图增删或识别阈值变更会在同一 SQLite 事务内持久降级为 `OBSERVE`，并且多图消息任一图片下载/识别失败时自动撤回降级为 Observe；release manifest 也拒绝重复路径。 |
+| Rust 质量门 | 默认 feature 的 fmt/clippy 通过；本次本机 OpenCV feature `cargo test` 通过 90 项库测试，feature clippy 也通过；代码验证提交 `8ed7c52eceb2ae01223ecb6e23e776ae78d5a48d` 的 Windows OpenCV feature CI run `34896983425` 仍记录为通过 88 项库测试、clippy、Tauri OpenCV NSIS 构建、runtime staging、资源检查和 artifact 上传。release feature 的结构合法测试凭证绑定规则仍保留，缺少凭证或证书 SHA 与当前 checkout 不一致时会拒绝编译。证书现同时绑定完整 Reference Bank、manifest、视觉/缓存指纹和 OpenCV runtime SHA-256。 |
 | ReferenceManager | 本地单元测试验证 1~10 张上限、源文件不修改、SHA-256/pHash 元数据与原子复制。 |
+| 内置默认参考库 | `builtin_references` 单元测试确认 1 张奶龙与 6 张奶蛙资源均被编译进程序；Windows 启动初始化会复制到 app-data Reference Bank，并通过持久化标记避免重复导入，已有非内置用户参考图的类别保持不变。 |
 | SQLite v5 | `settings`、`reference_images`、`prediction_cache`、`moderation_messages`、`classification_label`、`reference_set_version` 与 `engine_fingerprint` 已实现；重开幂等、完整分类缓存、跨引擎隔离、版本化缓存、按群幂等和参考库增删测试通过。参考图增删或识别阈值变更会在事务内持久将现有 `AUTO_RECALL` 群组降级为 `OBSERVE`；旧 v4 缓存迁移为无指纹条目并自动失效。 |
 | 前端 | `pnpm typecheck` 与 `pnpm build` 通过；四页已切换到识别、QQ、参考图库、设置；参考图库支持一次多选，按剩余名额顺序逐张写入并汇总失败；设置页可持久化阈值、开发者模式和 SQLite 诊断。浏览器预览检查无 console error。 |
 | 参考图初始化向导 | 隔离 Tauri/WebView 首次运行显示奶龙/奶蛙两步向导；从本地 QQ 缓存各选择 1 张后分别写入 Reference Bank、刷新版本并显示完成状态，识别页向导消失。 |

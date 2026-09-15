@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod builtin_references;
 pub mod decoder;
 pub mod image_policy;
 pub mod moderation;
@@ -627,6 +628,12 @@ pub fn run() {
     let qq_state = qq_service::QqServiceState::default();
     tauri::Builder::default()
         .manage(qq_state)
+        .setup(|app| {
+            if let Err(error) = builtin_references::seed_if_needed(app.handle()) {
+                eprintln!("built-in reference seed skipped: {error}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_info,
             inspect_image,
