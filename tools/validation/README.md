@@ -85,12 +85,15 @@ pnpm --dir apps/desktop tauri:build:opencv:recall
 
 The release build wrapper and `build.rs` resolve the actual pinned runtime DLL
 again in the same Cargo build process, hash its bytes, and compare that hash
-with `nativeRuntimeSha256` in the certificate. The `NLNF_OPENCV_RUNTIME_*`
-environment variables are optional hints/diagnostics; a child PowerShell
-process cannot be used as the source of truth for the release identity. CI
-also runs `tools/validation/test-auto-recall-release-plumbing.ps1` with a
-synthetic certificate to prove that matching runtime bytes build successfully
-and mismatched bytes fail closed. This plumbing test is not visual accuracy
+with `nativeRuntimeSha256` in the certificate. The wrapper compiles this
+release-gated binary with Cargo before running `tauri bundle`; this keeps the
+clean-checkout gate ahead of any Tauri CLI manifest feature synchronization.
+The `NLNF_OPENCV_RUNTIME_*` environment variables are optional
+hints/diagnostics; a child PowerShell process cannot be used as the source of
+truth for the release identity. CI also runs
+`tools/validation/test-auto-recall-release-plumbing.ps1` with a synthetic
+certificate to prove that matching runtime bytes build successfully and
+mismatched bytes fail closed. This plumbing test is not visual accuracy
 validation and does not authorize `AUTO_RECALL` for real data.
 
 Adding, deleting or changing a reference later invalidates the certificate and

@@ -97,7 +97,20 @@ try {
       if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
       }
-      & pnpm exec tauri build --config src-tauri/tauri.opencv.conf.json --features opencv-backend,auto-recall-release --bundles nsis --no-sign --ci
+      # Tauri's build command may rewrite Cargo.toml while synchronizing
+      # dependency features. Compile the release-gated binary with Cargo
+      # first, while build.rs can still enforce a clean checkout. Bundle the
+      # already-built artifact afterward so that a CLI manifest rewrite cannot
+      # invalidate the release gate during the Cargo build itself.
+      & pnpm build
+      if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+      }
+      & cargo build --manifest-path src-tauri/Cargo.toml --release --features opencv-backend,auto-recall-release
+      if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+      }
+      & pnpm exec tauri bundle --config src-tauri/tauri.opencv.conf.json --bundles nsis --no-sign --ci
     }
   }
   $exitCode = $LASTEXITCODE

@@ -95,4 +95,7 @@ local build input and is intentionally not committed to Git. For an
 `auto-recall-release` build, `build.rs` independently reads and hashes the same
 DLL during the Cargo build and compares it with the embedded validation
 certificate; this avoids relying on environment variables propagated from a
-child PowerShell process.
+child PowerShell process. The release wrapper runs the frontend build and
+release-gated `cargo build` before invoking `tauri bundle`. Tauri's CLI may
+rewrite `Cargo.toml` while synchronizing dependency features, so bundling is
+kept after the clean-checkout Cargo gate rather than allowed to restart it.
