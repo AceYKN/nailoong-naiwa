@@ -38,7 +38,7 @@
 ## Phase 4 — Desktop MVP (v0.1)
 
 - [x] 用 VisionEngine 作为桌面端分类路径（OpenCV feature build 已验证）
-- [x] 识别页支持拖拽、批量上传、结果卡片和 UNKNOWN fail-closed
+- [x] 识别页支持拖拽、单张/多选上传、QQ 缓存文件夹导入、结果卡片和 UNKNOWN fail-closed；每批最多 120 张
 - [x] 参考图页提供每类 1~10 张管理与按剩余名额多选导入
 - [x] 识别失败时可将当前图片立即加入指定 Reference Bank
 - [x] 结果卡片显示 MatchResult 技术指标
@@ -76,8 +76,8 @@
 ## Phase 8 — Packaging and repository release
 
 - [x] Windows 打包流程携带或明确检查 OpenCV runtime DLL（2026-09-13 NSIS release 构建、SHA-256、隔离安装/卸载均通过；正式标识符包的启动仍不在本次隔离检查范围）；公共 CI 现执行 OpenCV NSIS 构建并检查 exe、DLL 和安装包资源
-- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；功能基线提交 `03d4c4792ddf4d1e2765cb4b19b8b36cd2329916` 的 CI run `34954176974` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
-- [x] 成功的 OpenCV CI run 上传短期 Windows 验证 artifact（功能基线提交 `03d4c4792ddf4d1e2765cb4b19b8b36cd2329916` 的 run `34954176974` 上传 `nlnf-windows-opencv-03d4c4792ddf4d1e2765cb4b19b8b36cd2329916`，58,184,231 bytes，保留至 2026-09-29；包含 NSIS 安装包、exe 和匹配 runtime DLL；不等同于正式 Auto Recall release）
+- [x] 公共 CI 提供可复现且固定版本的 Windows OpenCV/Clang 原生 feature job（OpenCV 4.13.0 + LLVM 20.1.8；提交 `e4db79b58a44bd9c05db8d121043093ec132b6be` 的 CI run `34958952822` 已通过 check/test/clippy、Tauri OpenCV NSIS、runtime staging、合成 release plumbing 与资源检查）；默认便携 job 仍不依赖机器专属原生工具链
+- [x] 成功的 OpenCV CI run 上传短期 Windows 验证 artifact（run `34958952822` 上传 `nlnf-windows-opencv-e4db79b58a44bd9c05db8d121043093ec132b6be`，58,186,754 bytes，保留至 2026-09-29；包含 NSIS 安装包、exe 和匹配 runtime DLL；不等同于正式 Auto Recall release）
 - [x] 安装、启动、识别页和参考图页本机验证（最新 NSIS 包在独立安装目录和独立应用数据目录启动；完成初始化向导、参考图添加、三张识别及卸载）
 - [x] 从构建、CI、发布文档和当前 checkout 中移除 v1 的 PyTorch、训练、ONNX、DeepSeek 运行依赖
 - [x] 清理旧 Git 历史中的本地敏感标识后，创建干净公开 GitHub 初始提交
