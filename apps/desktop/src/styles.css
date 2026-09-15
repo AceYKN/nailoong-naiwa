@@ -62,6 +62,7 @@ h1 { margin-bottom: 14px; font-family: Georgia, "Times New Roman", serif; font-s
 .drop-icon { width: 36px; height: 36px; margin-bottom: 14px; border: 1px solid #dac99f; border-radius: 50%; color: #b88d2d; font-size: 22px; line-height: 33px; }
 .drop-zone h2 { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
 .drop-zone p { margin-bottom: 13px; color: #8e887f; font-size: 12px; }
+.drop-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
 .format-note { color: #b2a899; font-size: 10px; letter-spacing: .08em; }
 .input-issues { display: grid; gap: 6px; width: min(100%, 680px); margin-top: 14px; padding: 10px 12px; border: 1px solid #e9c5be; border-radius: 9px; color: #9e5950; background: #fff4f0; font-size: 11px; line-height: 1.5; text-align: left; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; margin: 47px 0 17px; }

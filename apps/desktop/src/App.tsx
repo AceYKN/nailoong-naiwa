@@ -254,6 +254,7 @@ function App() {
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
   const batchClassifyingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const directoryInputRef = useRef<HTMLInputElement>(null);
   const nailongReferenceInputRef = useRef<HTMLInputElement>(null);
   const frogReferenceInputRef = useRef<HTMLInputElement>(null);
   const onboardingNailongInputRef = useRef<HTMLInputElement>(null);
@@ -310,6 +311,21 @@ function App() {
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+
+  useEffect(() => {
+    // Chromium/WebView exposes directory selection as a non-standard DOM
+    // property. Set it imperatively so the TypeScript JSX surface remains
+    // portable while the same control works in the browser preview and the
+    // Tauri WebView.
+    const input = directoryInputRef.current as (HTMLInputElement & {
+      webkitdirectory?: boolean;
+      directory?: boolean;
+    }) | null;
+    if (input) {
+      input.webkitdirectory = true;
+      input.directory = true;
+    }
+  }, []);
 
   useEffect(() => () => {
     imagesRef.current.forEach((image) => {
@@ -463,6 +479,12 @@ function App() {
   }, [images]);
 
   const handleFileInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.currentTarget.files ? Array.from(event.currentTarget.files) : [];
+    event.currentTarget.value = "";
+    void addFiles(files);
+  }, [addFiles]);
+
+  const handleDirectoryInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.currentTarget.files ? Array.from(event.currentTarget.files) : [];
     event.currentTarget.value = "";
     void addFiles(files);
@@ -644,6 +666,7 @@ function App() {
       )}
 
       <input ref={fileInputRef} hidden type="file" accept={ACCEPTED_TYPES.join(",")} multiple onChange={handleFileInput} />
+      <input ref={directoryInputRef} hidden type="file" accept={ACCEPTED_TYPES.join(",")} multiple onChange={handleDirectoryInput} />
       <div
         className={`drop-zone${dragging ? " is-dragging" : ""}`}
         onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -655,7 +678,10 @@ function App() {
           <div className="drop-icon">＋</div>
           <h2>把图片拖到这里</h2>
           <p>支持 PNG、JPEG、WebP、GIF；本地批次最多 {MAX_QUEUE_SIZE} 张</p>
-          <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()}>选择文件</button>
+          <div className="drop-actions">
+            <button type="button" className="secondary-button" onClick={() => fileInputRef.current?.click()}>选择文件</button>
+            <button type="button" className="text-button" onClick={() => directoryInputRef.current?.click()}>选择缓存文件夹</button>
+          </div>
           <div className="format-note">图片只在本机处理</div>
         </div>
       </div>
