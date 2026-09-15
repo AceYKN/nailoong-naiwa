@@ -83,6 +83,16 @@ $env:NLNF_VALIDATION_CERTIFICATE_JSON = [System.IO.File]::ReadAllText(
 pnpm --dir apps/desktop tauri:build:opencv:recall
 ```
 
+The release build wrapper and `build.rs` resolve the actual pinned runtime DLL
+again in the same Cargo build process, hash its bytes, and compare that hash
+with `nativeRuntimeSha256` in the certificate. The `NLNF_OPENCV_RUNTIME_*`
+environment variables are optional hints/diagnostics; a child PowerShell
+process cannot be used as the source of truth for the release identity. CI
+also runs `tools/validation/test-auto-recall-release-plumbing.ps1` with a
+synthetic certificate to prove that matching runtime bytes build successfully
+and mismatched bytes fail closed. This plumbing test is not visual accuracy
+validation and does not authorize `AUTO_RECALL` for real data.
+
 Adding, deleting or changing a reference later invalidates the certificate and
 automatically downgrades the stored group mode to `OBSERVE`; rerun the gate for
 the new exact Reference Bank. Ordinary builds must omit the release feature and

@@ -255,6 +255,10 @@ jobs:
             apps/desktop/src-tauri/target/release/opencv_world4130.dll
           if-no-files-found: error
           retention-days: 14
+      - name: Test auto-recall release plumbing with a synthetic certificate
+        shell: pwsh
+        working-directory: .
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tools/validation/test-auto-recall-release-plumbing.ps1
 
   desktop-windows-build:
     runs-on: windows-latest

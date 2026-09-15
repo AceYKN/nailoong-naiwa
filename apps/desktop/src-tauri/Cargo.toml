@@ -15,6 +15,8 @@ opencv-backend = ["dep:opencv"]
 auto-recall-release = ["opencv-backend"]
 
 [build-dependencies]
+hex = "0.4.3"
+sha2 = "0.10.9"
 tauri-build = { version = "2", features = [] }
 serde_json = "1"
 

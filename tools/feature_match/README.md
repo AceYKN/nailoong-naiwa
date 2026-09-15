@@ -91,4 +91,8 @@ bundling; the config explicitly includes the pinned `opencv_world4130.dll` as a
 bundle resource, and fails closed if the name or runtime DLL does not match. If
 `NLNF_OPENCV_RUNTIME_SHA256` is set (as it is for release validation and CI),
 the staging step also compares the actual DLL bytes to that hash. The DLL is a
-local build input and is intentionally not committed to Git.
+local build input and is intentionally not committed to Git. For an
+`auto-recall-release` build, `build.rs` independently reads and hashes the same
+DLL during the Cargo build and compares it with the embedded validation
+certificate; this avoids relying on environment variables propagated from a
+child PowerShell process.
