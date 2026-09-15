@@ -1,6 +1,6 @@
 //! Reviewed, bundled reference images for a fresh local installation.
 //!
-//! These images are not a training set. They are copied into the app-data
+//! These images are not a model corpus. They are copied into the app-data
 //! Reference Bank once, so a fresh Windows install can classify without a
 //! separate import step. Existing user-populated classes are preserved.
 
