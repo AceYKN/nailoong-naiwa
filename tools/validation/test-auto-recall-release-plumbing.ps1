@@ -58,8 +58,27 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitSha)) {
 $env:NLNF_VALIDATION_GIT_SHA = $gitSha
 $env:NLNF_OPENCV_RUNTIME_NAME = 'opencv_world4130'
 $env:NLNF_OPENCV_RUNTIME_SHA256 = $runtimeSha256
-$env:NLNF_VALIDATION_CERTIFICATE_JSON = New-SyntheticCertificate $gitSha $runtimeSha256
+$replacement = if ($runtimeSha256[0] -eq '0') { '1' } else { '0' }
+$badRuntimeSha256 = $replacement + $runtimeSha256.Substring(1)
+$env:NLNF_VALIDATION_CERTIFICATE_JSON = New-SyntheticCertificate $gitSha $badRuntimeSha256
+Push-Location $repositoryRoot
+try {
+    $failureOutput = & pwsh -NoProfile -ExecutionPolicy Bypass -File tools/feature_match/run-opencv-tauri.ps1 build-recall 2>&1 | Out-String
+    $failureExitCode = $LASTEXITCODE
+}
+finally {
+    Pop-Location
+}
+if ($failureExitCode -eq 0) {
+    throw 'A certificate with a different runtime SHA unexpectedly passed the release build check.'
+}
+if ($failureOutput -notmatch 'nativeRuntimeSha256 does not match the actual runtime') {
+    throw "The expected runtime identity error was not reported:`n$failureOutput"
+}
+Write-Output 'Verified mismatched runtime bytes fail the auto-recall release build.'
 
+$env:NLNF_OPENCV_RUNTIME_SHA256 = $runtimeSha256
+$env:NLNF_VALIDATION_CERTIFICATE_JSON = New-SyntheticCertificate $gitSha $runtimeSha256
 Write-Output 'Building the synthetic auto-recall release bundle.'
 Push-Location $repositoryRoot
 try {
@@ -81,22 +100,3 @@ if (-not (Test-Path -LiteralPath $releaseExecutable -PathType Leaf) -or $null -e
     throw 'The synthetic auto-recall release plumbing did not produce the executable and NSIS installer.'
 }
 Write-Output "Verified synthetic release plumbing: $($installer.Name)."
-
-$replacement = if ($runtimeSha256[0] -eq '0') { '1' } else { '0' }
-$badRuntimeSha256 = $replacement + $runtimeSha256.Substring(1)
-$env:NLNF_VALIDATION_CERTIFICATE_JSON = New-SyntheticCertificate $gitSha $badRuntimeSha256
-Push-Location $repositoryRoot
-try {
-    $failureOutput = & pwsh -NoProfile -ExecutionPolicy Bypass -File tools/feature_match/run-opencv-tauri.ps1 build-recall 2>&1 | Out-String
-    $failureExitCode = $LASTEXITCODE
-}
-finally {
-    Pop-Location
-}
-if ($failureExitCode -eq 0) {
-    throw 'A certificate with a different runtime SHA unexpectedly passed the release build check.'
-}
-if ($failureOutput -notmatch 'nativeRuntimeSha256 does not match the actual runtime') {
-    throw "The expected runtime identity error was not reported:`n$failureOutput"
-}
-Write-Output 'Verified mismatched runtime bytes fail the auto-recall release build.'
