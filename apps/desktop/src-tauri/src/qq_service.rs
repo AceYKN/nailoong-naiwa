@@ -216,11 +216,35 @@ pub fn qq_status(app: AppHandle, state: State<'_, QqServiceState>) -> Result<QqS
         status.auto_recall_available =
             auto_recall_available_for_database(&database, status.token_configured, None);
         if status.connected {
-            status.groups = status
-                .groups
-                .iter()
-                .map(|group| normalize_group_view(group, status.auto_recall_available))
-                .collect();
+            // The runtime list is only the remote group's presence/name. The
+            // persisted record is authoritative for mode and threshold. Re-
+            // evaluate each group separately so a threshold/reference change
+            // cannot leave one stale AUTO_RECALL row visible while connected.
+            status.groups = match database.list_qq_groups() {
+                Ok(records) => status
+                    .groups
+                    .iter()
+                    .map(|runtime_group| {
+                        let record = records
+                            .iter()
+                            .find(|record| record.group_id == runtime_group.group_id);
+                        let available = record.is_some_and(|record| {
+                            auto_recall_available_for_database(
+                                &database,
+                                status.token_configured,
+                                Some(record.recall_threshold),
+                            )
+                        });
+                        connected_group_view(runtime_group, record, available)
+                    })
+                    .collect(),
+                // If the database cannot be read, fail closed in the UI too.
+                Err(_) => status
+                    .groups
+                    .iter()
+                    .map(|group| normalize_group_view(group, false))
+                    .collect(),
+            };
         } else {
             if let Ok(groups) = database.list_qq_groups() {
                 status.groups = groups
@@ -346,20 +370,8 @@ pub fn connect_qq(
     runtime.last_error = None;
     runtime.stop_sender = Some(stop_sender);
     runtime.worker = Some(worker);
-    Ok(QqStatus {
-        connected: runtime.connected,
-        action_endpoint: runtime.action_endpoint.clone(),
-        event_endpoint: runtime.event_endpoint.clone(),
-        token_configured: runtime.token_configured,
-        auto_recall_available: runtime.auto_recall_available,
-        groups: runtime
-            .groups
-            .iter()
-            .map(|group| normalize_group_view(group, runtime.auto_recall_available))
-            .collect(),
-        recent_events: runtime.recent_events.iter().cloned().collect(),
-        last_error: runtime.last_error.clone(),
-    })
+    drop(runtime);
+    qq_status(app, state)
 }
 
 #[tauri::command]
@@ -464,7 +476,7 @@ pub fn set_qq_group_mode(
         .sort_by(|left, right| left.group_id.cmp(&right.group_id));
     runtime.last_error = None;
     drop(runtime);
-    Ok(state.snapshot())
+    qq_status(app, state)
 }
 
 fn run_worker(
@@ -773,6 +785,16 @@ fn normalize_group_view(group: &QqGroupView, auto_recall_ready: bool) -> QqGroup
     }
 }
 
+fn connected_group_view(
+    runtime_group: &QqGroupView,
+    persisted_group: Option<&QQGroupRecord>,
+    auto_recall_ready: bool,
+) -> QqGroupView {
+    persisted_group
+        .map(|record| group_view(record, auto_recall_ready))
+        .unwrap_or_else(|| normalize_group_view(runtime_group, false))
+}
+
 fn log_event_view(record: &crate::storage::ModerationLogRecord) -> QqEventView {
     QqEventView {
         group_id: record.group_id.clone().unwrap_or_else(|| "-".to_owned()),
@@ -870,8 +892,9 @@ fn classify_bytes_for_qq(_app: &AppHandle, _bytes: &[u8]) -> Result<Classificati
 #[cfg(test)]
 mod tests {
     use super::{
-        auto_recall_available, best_summary, effective_group_mode, mode_name, normalize_group_view,
-        parse_group_mode, validate_requested_mode, QqGroupView, QqServiceState,
+        auto_recall_available, best_summary, connected_group_view, effective_group_mode, mode_name,
+        normalize_group_view, parse_group_mode, validate_requested_mode, QqGroupView,
+        QqServiceState,
     };
     use crate::{
         moderation::GroupMode,
@@ -943,6 +966,32 @@ mod tests {
             "OBSERVE"
         };
         assert_eq!(normalized.mode, expected);
+    }
+
+    #[test]
+    fn connected_group_view_uses_persisted_mode_and_fails_closed_without_a_record() {
+        let runtime_group = QqGroupView {
+            group_id: "10001".to_owned(),
+            group_name: "remote name".to_owned(),
+            mode: "AUTO_RECALL".to_owned(),
+            recall_threshold: 0.98,
+        };
+        let persisted_group = crate::storage::QQGroupRecord {
+            group_id: "10001".to_owned(),
+            group_name: "saved name".to_owned(),
+            mode: "OBSERVE".to_owned(),
+            recall_threshold: 0.99,
+            created_at: "now".to_owned(),
+            updated_at: "now".to_owned(),
+        };
+
+        let persisted = connected_group_view(&runtime_group, Some(&persisted_group), true);
+        assert_eq!(persisted.group_name, "saved name");
+        assert_eq!(persisted.mode, "OBSERVE");
+        assert_eq!(persisted.recall_threshold, 0.99);
+
+        let missing = connected_group_view(&runtime_group, None, true);
+        assert_eq!(missing.mode, "OBSERVE");
     }
 
     #[test]
