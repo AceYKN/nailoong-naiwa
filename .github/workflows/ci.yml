@@ -255,6 +255,27 @@ jobs:
             apps/desktop/src-tauri/target/release/opencv_world4130.dll
           if-no-files-found: error
           retention-days: 14
+      - name: Restore Tauri-generated manifest changes before release test
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = 'apps/desktop/src-tauri/Cargo.toml'
+          $trackedChanges = @(git diff --name-only HEAD)
+          $untrackedChanges = @(git ls-files --others --exclude-standard)
+          $allChanges = @($trackedChanges + $untrackedChanges | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          $unexpectedChanges = @($allChanges | Where-Object { $_ -ne $manifest })
+          if ($unexpectedChanges.Count -gt 0) {
+            throw "Unexpected changes remain after the ordinary Tauri build: $($unexpectedChanges -join ', ')"
+          }
+          if ($trackedChanges -contains $manifest) {
+            git restore --source=HEAD --staged --worktree -- $manifest
+          }
+          $remainingChanges = @(git status --porcelain=v1 --untracked-files=all)
+          if ($remainingChanges.Count -gt 0) {
+            throw "The checkout is not clean after restoring the Tauri manifest: $($remainingChanges -join '; ')"
+          }
+          Write-Output 'Restored the known Tauri manifest rewrite; the release test starts from a clean checkout.'
       - name: Test auto-recall release plumbing with a synthetic certificate
         shell: pwsh
         working-directory: .
