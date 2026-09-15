@@ -269,7 +269,7 @@ jobs:
             throw "Unexpected changes remain after the ordinary Tauri build: $($unexpectedChanges -join ', ')"
           }
           if ($trackedChanges -contains $manifest) {
-            git restore --source=HEAD --staged --worktree -- $manifest
+            git -c core.autocrlf=false restore --source=HEAD --staged --worktree -- $manifest
           }
           $remainingChanges = @(git status --porcelain=v1 --untracked-files=all)
           if ($remainingChanges.Count -gt 0) {
