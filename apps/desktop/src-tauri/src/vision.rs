@@ -8,12 +8,12 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAX_REFERENCES_PER_CLASS: usize = 10;
-pub const MIN_ORDINARY_GEOMETRIC_INLIERS: u32 = 6;
+pub const MIN_ORDINARY_GEOMETRIC_INLIERS: u32 = 12;
 pub const MIN_ORDINARY_GEOMETRIC_RATIO: f32 = 0.55;
-pub const MIN_ORDINARY_GEOMETRIC_COVERAGE: f32 = 0.10;
+pub const MIN_ORDINARY_GEOMETRIC_COVERAGE: f32 = 0.20;
 pub const MAX_ORDINARY_REPROJECTION_ERROR: f32 = 8.0;
 pub const MAX_ORDINARY_PHASH_SHORTCUT_DISTANCE: u32 = 4;
-pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-akaze-ransac-v6";
+pub const VISION_PIPELINE_VERSION: &str = "opencv-sift-akaze-ransac-v7";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -390,8 +390,8 @@ mod tests {
     #[test]
     fn ordinary_classification_rejects_a_high_score_with_too_few_inliers() {
         let mut weak = match_result(ReferenceClass::Nailong, 0.82);
-        weak.good_match_count = 4;
-        weak.inlier_count = 4;
+        weak.good_match_count = 8;
+        weak.inlier_count = 8;
         weak.phash_distance = Some(32);
         let result = classify(&[weak], VisionThresholds::default(), 1).unwrap();
         assert_eq!(result.label, ClassificationLabel::Unknown);
