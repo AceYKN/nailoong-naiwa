@@ -62,6 +62,10 @@ export async function removeReference(id: string): Promise<void> {
   await invoke("remove_reference", { id });
 }
 
+export async function restoreBuiltinReferences(): Promise<number> {
+  return invoke<number>("restore_builtin_references");
+}
+
 export async function initializeStorage(): Promise<StorageInfo> {
   return invoke<StorageInfo>("initialize_storage");
 }

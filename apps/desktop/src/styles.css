@@ -130,6 +130,7 @@ h1 { margin-bottom: 14px; font-family: Georgia, "Times New Roman", serif; font-s
 .classification-result.uncertain { color: #746d64; background: #f1eee8; }
 .classification-result.uncertain span { color: #8f877d; }
 .page-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: 8px 0 30px; }
+.page-heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .page-heading-row h1 { margin: 0 0 10px; font-size: 36px; }
 .page-heading-row p { margin: 0; color: #817b72; font-size: 13px; line-height: 1.7; }
 .notice-box { margin: 0 0 18px; padding: 11px 13px; border: 1px solid #c5dec5; border-radius: 9px; color: #4e7655; background: #f2faf0; font-size: 11px; }

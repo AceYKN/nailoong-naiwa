@@ -530,6 +530,11 @@ fn remove_reference(app: tauri::AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn restore_builtin_references(app: tauri::AppHandle) -> Result<usize, String> {
+    builtin_references::restore_missing(&app)
+}
+
 fn reference_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = app
         .path()
@@ -646,6 +651,7 @@ pub fn run() {
             read_reference,
             add_reference,
             remove_reference,
+            restore_builtin_references,
             classify_image,
             debug_match_image,
             qq_service::qq_status,

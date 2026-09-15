@@ -13,6 +13,7 @@ import {
   listReferences,
   readReference,
   removeReference,
+  restoreBuiltinReferences,
   setAppSettings,
   setQqGroupMode,
 } from "./services/appBridge";
@@ -241,6 +242,7 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loadingReferences, setLoadingReferences] = useState(false);
   const [addingClass, setAddingClass] = useState<ReferenceClass | null>(null);
+  const [restoringBuiltins, setRestoringBuiltins] = useState(false);
   const [qqStatus, setQqStatus] = useState<QqStatus>(fallbackQqStatus);
   const [qqActionEndpoint, setQqActionEndpoint] = useState("http://127.0.0.1:5700/");
   const [qqEventEndpoint, setQqEventEndpoint] = useState("http://127.0.0.1:5701/");
@@ -540,6 +542,27 @@ function App() {
     setAddingClass(null);
   }, [referencesByClass, refreshAppState]);
 
+  const handleRestoreBuiltinReferences = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setReferenceError("浏览器预览不能写入本地参考库，请在 Tauri 桌面程序中运行");
+      return;
+    }
+    setRestoringBuiltins(true);
+    setReferenceError(null);
+    setNotice(null);
+    try {
+      const addedCount = await restoreBuiltinReferences();
+      await refreshAppState();
+      setNotice(addedCount > 0
+        ? `已补充 ${addedCount} 张内置参考图；现有用户参考图未被修改`
+        : "没有新增内置参考图：默认图已存在或对应类别已达到 10 张上限");
+    } catch (error) {
+      setReferenceError(errorText(error));
+    } finally {
+      setRestoringBuiltins(false);
+    }
+  }, [refreshAppState]);
+
   const handleRemoveReference = useCallback(async (reference: ReferenceInfo) => {
     if (!window.confirm(`确认删除参考图 ${reference.id}？`)) return;
     setReferenceError(null);
@@ -758,7 +781,12 @@ function App() {
       <p className="eyebrow">REFERENCE BANK</p>
       <div className="page-heading-row">
         <div><h1>参考图库</h1><p>每类允许 1–10 张参考图；添加或删除后会自动提升参考库版本。</p></div>
-        <span className="count-badge">版本 {appInfo.referenceSetVersion}</span>
+        <div className="page-heading-actions">
+          <button type="button" className="secondary-button" onClick={() => void handleRestoreBuiltinReferences()} disabled={restoringBuiltins || addingClass !== null}>
+            {restoringBuiltins ? "补充中…" : "补充内置参考图"}
+          </button>
+          <span className="count-badge">版本 {appInfo.referenceSetVersion}</span>
+        </div>
       </div>
       {referenceError && <div className="input-issues"><span>{referenceError}</span></div>}
       {notice && <div className="notice-box">{notice}</div>}

@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::vision::ReferenceClass;
+use crate::vision::{ReferenceClass, MAX_REFERENCES_PER_CLASS};
 
 pub(crate) struct BuiltinReference {
     pub(crate) label: &'static str,
@@ -129,6 +129,72 @@ pub(crate) fn seed_if_needed(app: &tauri::AppHandle) -> Result<usize, String> {
     }
     drop(database);
 
+    let added = add_pending(app, pending)?;
+
+    let database = crate::open_database(app)?;
+    database
+        .mark_builtin_reference_bank_seeded()
+        .map_err(|error| error.to_string())?;
+    Ok(added)
+}
+
+/// Add missing bundled references without replacing or deleting user images.
+///
+/// This is intentionally separate from the one-time startup seed. Existing
+/// installations may already have the seed marker from an older build while
+/// still having room for the newer bundled reference bank.
+pub(crate) fn restore_missing(app: &tauri::AppHandle) -> Result<usize, String> {
+    let database = crate::open_database(app)?;
+    let existing = database
+        .list_references()
+        .map_err(|error| error.to_string())?;
+    let pending = pending_builtins(&existing);
+    drop(database);
+
+    add_pending(app, pending)
+}
+
+fn pending_builtins(
+    existing: &[crate::storage::ReferenceRecord],
+) -> Vec<&'static BuiltinReference> {
+    let mut existing_hashes: HashSet<String> = existing
+        .iter()
+        .map(|record| record.sha256.to_ascii_lowercase())
+        .collect();
+    let mut pending = Vec::new();
+
+    for class in [ReferenceClass::Nailong, ReferenceClass::NaiwaFrog] {
+        let class_count = existing
+            .iter()
+            .filter(|record| record.class == class_name(class))
+            .count();
+        let available = MAX_REFERENCES_PER_CLASS.saturating_sub(class_count);
+        if available == 0 {
+            continue;
+        }
+
+        let mut selected = 0usize;
+        for reference in BUILTIN_REFERENCES
+            .iter()
+            .filter(|reference| reference.class == class)
+        {
+            if selected >= available {
+                break;
+            }
+            let sha256 = crate::release::sha256_hex(reference.bytes);
+            if existing_hashes.insert(sha256) {
+                pending.push(reference);
+                selected += 1;
+            }
+        }
+    }
+    pending
+}
+
+fn add_pending(
+    app: &tauri::AppHandle,
+    pending: Vec<&'static BuiltinReference>,
+) -> Result<usize, String> {
     let mut added = 0usize;
     for reference in pending {
         super::add_reference(
@@ -136,14 +202,9 @@ pub(crate) fn seed_if_needed(app: &tauri::AppHandle) -> Result<usize, String> {
             class_name(reference.class).to_owned(),
             reference.bytes.to_vec(),
         )
-        .map_err(|error| format!("内置参考图 {} 初始化失败: {error}", reference.label))?;
+        .map_err(|error| format!("内置参考图 {} 导入失败: {error}", reference.label))?;
         added += 1;
     }
-
-    let database = crate::open_database(app)?;
-    database
-        .mark_builtin_reference_bank_seeded()
-        .map_err(|error| error.to_string())?;
     Ok(added)
 }
 
@@ -167,6 +228,46 @@ mod tests {
         assert!(BUILTIN_REFERENCES
             .iter()
             .all(|reference| !reference.bytes.is_empty()));
+    }
+
+    #[test]
+    fn restore_selection_preserves_user_references_and_respects_capacity() {
+        let user_record = |class: &str, index: usize| crate::storage::ReferenceRecord {
+            id: format!("USER-{class}-{index}"),
+            class: class.to_owned(),
+            file_path: format!("C:/references/{class}/{index}.png"),
+            sha256: format!("{index:064x}"),
+            phash: "0".repeat(16),
+            descriptor_path: None,
+            width: 1,
+            height: 1,
+            created_at: "test".to_owned(),
+        };
+
+        let partial = vec![user_record("NAILONG", 1), user_record("NAIWA_FROG", 2)];
+        let pending = pending_builtins(&partial);
+        assert_eq!(
+            pending
+                .iter()
+                .filter(|reference| reference.class == ReferenceClass::Nailong)
+                .count(),
+            1
+        );
+        assert_eq!(
+            pending
+                .iter()
+                .filter(|reference| reference.class == ReferenceClass::NaiwaFrog)
+                .count(),
+            6
+        );
+
+        let full_nailong = (0..MAX_REFERENCES_PER_CLASS)
+            .map(|index| user_record("NAILONG", 100 + index))
+            .collect::<Vec<_>>();
+        let pending = pending_builtins(&full_nailong);
+        assert!(pending
+            .iter()
+            .all(|reference| reference.class != ReferenceClass::Nailong));
     }
 
     #[cfg(feature = "opencv-backend")]
